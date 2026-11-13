@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Desktop companion",
+    "description": "A floating ball on your desktop. Click it (or press Ctrl+Shift+Space), type a question, and it sends your words plus a full screenshot into a dedicated DSH session; the answer streams back into a bubble next to the ball."
+  }
+}

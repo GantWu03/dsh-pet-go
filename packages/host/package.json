@@ -1,0 +1,21 @@
+{
+  "name": "@dsh-companion/host",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Desktop companion for DeepSeek Harness: one floating ball, one screenshot question, one answer bubble.",
+  "exports": {
+    ".": "./index.js",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "locale/*.json"
+  ]
+}

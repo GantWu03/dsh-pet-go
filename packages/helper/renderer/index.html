@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+  <title>companion</title>
+  <link rel="stylesheet" href="./app.css" />
+</head>
+<body>
+  <div id="stage">
+    <section id="bubble" class="hidden" aria-live="polite">
+      <div id="bubble-text"></div>
+      <div id="bubble-meta" class="hidden"></div>
+    </section>
+
+    <section id="panel" class="hidden">
+      <textarea id="input" rows="2" placeholder="问我点什么…（Enter 发送 / Shift+Enter 换行）"></textarea>
+      <div class="row">
+        <label class="switch" id="capture-switch">
+          <input type="checkbox" id="capture-toggle" checked />
+          <span class="track"><span class="knob"></span></span>
+          <span class="switch-label">截图</span>
+        </label>
+        <span id="model-chip" class="chip">…</span>
+        <button id="new-session" class="ghost" title="新建会话">新会话</button>
+        <button id="send" class="primary">发送</button>
+      </div>
+      <div id="toast" class="hidden"></div>
+    </section>
+
+    <div id="ball" title="点我提问">
+      <span class="eye left"></span>
+      <span class="eye right"></span>
+    </div>
+  </div>
+  <script src="./app.js"></script>
+</body>
+</html>
