@@ -1,19 +1,27 @@
 /**
- * dsh-companion helper — the floating ball.
+ * dsh-companion helper — two windows, on purpose.
  *
- * Runs as its own Electron process so it survives DSH being minimized or
- * covered. Responsibilities:
- *   - one transparent always-on-top window (ball + composer + bubble),
- *   - global hotkey,
- *   - the actual screen capture (the host process has no Electron APIs),
- *   - the loopback TCP channel to the host plugin.
+ *   ballWin   72x72, always interactive: the ball itself. Because the window is
+ *             exactly the ball, clicks outside it pass through to the desktop
+ *             with no `setIgnoreMouseEvents` hit-testing at all.
+ *   panelWin  380 wide, hosts both the composer and the answer bubble. It is
+ *             mouse-transparent while it only shows a bubble (so it never
+ *             blocks the app underneath) and interactive while the composer is
+ *             open.
+ *
+ * An earlier single-window build relied on `setIgnoreMouseEvents(true,
+ * {forward:true})` plus a renderer hit-test; on this machine the forwarded
+ * mousemove never reached the page, so the ball received no clicks.
  */
 import {
   app,
   BrowserWindow,
+  Menu,
+  Tray,
   desktopCapturer,
   globalShortcut,
   ipcMain,
+  nativeImage,
   screen,
 } from 'electron'
 import net from 'node:net'
@@ -24,8 +32,10 @@ import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { PROTOCOL_VERSION, CAPTURE_MODE, encodeFrame, createFrameDecoder } from '../shared/src/protocol.js'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
-const WIN_W = 380
-const WIN_H = 470
+
+const BALL = 72
+const PANEL_W = 380
+const GAP = 8
 const EDGE = 8
 
 const PORT = Number(process.env.COMPANION_PORT)
@@ -33,15 +43,16 @@ const TOKEN = process.env.COMPANION_TOKEN
 const LOG_FILE = process.env.COMPANION_LOG
 
 function log (line) {
-  const text = `[${new Date().toISOString()}] [helper] ${line}\n`
   if (!LOG_FILE) return
   try {
-    appendFileSync(LOG_FILE, text, 'utf8')
+    appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [helper] ${line}\n`, 'utf8')
   } catch {}
 }
 
 /** @type {BrowserWindow | null} */
-let win = null
+let ballWin = null
+/** @type {BrowserWindow | null} */
+let panelWin = null
 /** @type {import('node:net').Socket | null} */
 let socket = null
 let connected = false
@@ -49,42 +60,72 @@ let reqSeq = 0
 /** @type {Map<string, (frame: any) => void>} */
 const pending = new Map()
 let dragging = null
+let tray = null
+let panelOpen = false
+let bubbleHeight = 0
+let panelHeight = 140
+let welcomeFrame = null
 
 const stateFile = () => join(app.getPath('userData'), 'window-state.json')
 
-function loadBounds () {
+// ------------------------------------------------------------------ geometry
+
+function clampToWorkArea (x, y) {
+  const display = screen.getDisplayNearestPoint({ x, y })
+  const area = display.workArea
+  const maxX = area.x + area.width - BALL
+  const maxY = area.y + area.height - BALL
+  return {
+    x: Math.min(Math.max(x, area.x), maxX),
+    y: Math.min(Math.max(y, area.y), maxY),
+  }
+}
+
+function loadBallPosition () {
   try {
     const saved = JSON.parse(readFileSync(stateFile(), 'utf8'))
-    const display = screen.getDisplayNearestPoint({ x: saved.x ?? 0, y: saved.y ?? 0 })
-    const area = display.workArea
-    if (
-      typeof saved.x === 'number' && typeof saved.y === 'number' &&
-      saved.x >= area.x - 200 && saved.x <= area.x + area.width &&
-      saved.y >= area.y - 200 && saved.y <= area.y + area.height
-    ) {
-      return { x: saved.x, y: saved.y }
+    if (typeof saved.x === 'number' && typeof saved.y === 'number') {
+      return clampToWorkArea(saved.x, saved.y)
     }
   } catch {}
   const area = screen.getPrimaryDisplay().workArea
-  return { x: area.x + area.width - WIN_W - EDGE, y: area.y + area.height - WIN_H - EDGE }
+  return { x: area.x + area.width - BALL - EDGE, y: area.y + area.height - BALL - EDGE }
 }
 
-function saveBounds () {
-  if (!win) return
+function saveBallPosition () {
+  if (!ballWin) return
   try {
-    const [x, y] = win.getPosition()
+    const [x, y] = ballWin.getPosition()
     mkdirSync(dirname(stateFile()), { recursive: true })
     writeFileSync(stateFile(), JSON.stringify({ x, y }), 'utf8')
   } catch {}
 }
 
-function createWindow () {
-  const bounds = loadBounds()
-  win = new BrowserWindow({
-    width: WIN_W,
-    height: WIN_H,
-    x: bounds.x,
-    y: bounds.y,
+/** Anchor the panel window above the ball, right edges aligned. */
+function positionPanel (height) {
+  if (!ballWin || !panelWin) return
+  const [bx, by] = ballWin.getPosition()
+  const x = Math.round(bx + BALL - PANEL_W)
+  const y = Math.round(by - GAP - height)
+  const display = screen.getDisplayNearestPoint({ x: bx, y: by })
+  const area = display.workArea
+  panelWin.setBounds({
+    x: Math.max(area.x, Math.min(x, area.x + area.width - PANEL_W)),
+    y: Math.max(area.y, Math.min(y, area.y + area.height - height)),
+    width: PANEL_W,
+    height,
+  })
+}
+
+// -------------------------------------------------------------------- windows
+
+function createBallWindow () {
+  const position = loadBallPosition()
+  ballWin = new BrowserWindow({
+    width: BALL,
+    height: BALL,
+    x: position.x,
+    y: position.y,
     frame: false,
     transparent: true,
     resizable: false,
@@ -96,43 +137,83 @@ function createWindow () {
     alwaysOnTop: true,
     hasShadow: false,
     show: false,
-    focusable: true,
-    webPreferences: {
-      preload: join(HERE, 'preload.cjs'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: false,
-    },
+    webPreferences: { preload: join(HERE, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: false },
   })
+  ballWin.setAlwaysOnTop(true, 'screen-saver')
+  ballWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  ballWin.loadFile(join(HERE, 'renderer', 'ball.html'))
+  ballWin.once('ready-to-show', () => {
+    ballWin?.showInactive()
+    log(`ball shown at ${JSON.stringify(ballWin?.getPosition())}`)
+  })
+  ballWin.on('closed', () => { ballWin = null })
+}
 
-  win.setAlwaysOnTop(true, 'screen-saver')
-  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-  win.setIgnoreMouseEvents(true, { forward: true })
-  win.loadFile(join(HERE, 'renderer', 'index.html'))
-  win.once('ready-to-show', () => {
-    log(`ready-to-show pos=${JSON.stringify(win.getPosition())}`)
-    win.showInactive()
-    log(`shown visible=${win.isVisible()} bounds=${JSON.stringify(win.getBounds())}`)
+function createPanelWindow () {
+  panelWin = new BrowserWindow({
+    width: PANEL_W,
+    height: panelHeight,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    movable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    hasShadow: false,
+    show: false,
+    focusable: true,
+    webPreferences: { preload: join(HERE, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: false },
   })
-  win.webContents.on('did-finish-load', () => {
-    log('did-finish-load')
-    if (win && !win.isVisible()) win.showInactive()
+  panelWin.setAlwaysOnTop(true, 'screen-saver')
+  panelWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  panelWin.setIgnoreMouseEvents(true, { forward: true })
+  panelWin.loadFile(join(HERE, 'renderer', 'panel.html'))
+  // Frames that arrive before the page is ready (welcome/model) would be lost,
+  // so replay the last welcome once the renderer is up.
+  panelWin.webContents.on('did-finish-load', () => {
+    if (welcomeFrame) panelWin?.webContents.send('companion:host', welcomeFrame)
   })
-  win.webContents.on('did-fail-load', (_event, code, description) => {
-    log(`did-fail-load ${code} ${description}`)
-  })
-  win.webContents.on('render-process-gone', (_event, details) => {
-    log(`render-process-gone ${JSON.stringify(details)}`)
-  })
-  win.on('closed', () => { win = null })
+  panelWin.on('closed', () => { panelWin = null })
 }
 
 function openPanel () {
-  if (!win) return
-  win.show()
-  win.focus()
-  win.setIgnoreMouseEvents(false)
-  win.webContents.send('companion:open')
+  if (!panelWin || !ballWin) return
+  panelOpen = true
+  positionPanel(panelHeight)
+  panelWin.setIgnoreMouseEvents(false)
+  panelWin.show()
+  panelWin.focus()
+  panelWin.webContents.send('companion:open')
+  log('panel opened')
+}
+
+function closePanel () {
+  if (!panelOpen) return
+  panelOpen = false
+  panelWin?.webContents.send('companion:close')
+  if (bubbleHeight > 0) {
+    showBubbleWindow()
+  } else {
+    panelWin?.hide()
+    panelWin?.setIgnoreMouseEvents(true, { forward: true })
+  }
+  log('panel closed')
+}
+
+/** Bubble-only mode: visible, sized to content, and mouse-transparent. */
+function showBubbleWindow (height) {
+  if (!panelWin) return
+  if (typeof height === 'number') bubbleHeight = height
+  const target = Math.round(bubbleHeight > 0 ? bubbleHeight : 120)
+  positionPanel(target)
+  panelWin.setIgnoreMouseEvents(true, { forward: true })
+  if (!panelWin.isVisible()) panelWin.showInactive()
+}
+
+function hideBubble () {
+  bubbleHeight = 0
+  if (panelOpen) return
+  panelWin?.hide()
 }
 
 // ---------------------------------------------------------------- screen cap
@@ -159,19 +240,14 @@ async function captureActiveDisplay () {
     throw error
   }
   const size = image.getSize()
-  return {
-    base64: image.toPNG().toString('base64'),
-    mediaType: 'image/png',
-    width: size.width,
-    height: size.height,
-  }
+  return { base64: image.toPNG().toString('base64'), mediaType: 'image/png', width: size.width, height: size.height }
 }
 
 // ------------------------------------------------------------- host channel
 
 function connectHost () {
   if (!PORT || !TOKEN) {
-    console.error('[companion] missing COMPANION_PORT / COMPANION_TOKEN')
+    log('missing COMPANION_PORT / COMPANION_TOKEN')
     return
   }
   const socketInstance = net.connect(PORT, '127.0.0.1')
@@ -186,7 +262,14 @@ function connectHost () {
       resolve(frame)
       return
     }
-    win?.webContents.send('companion:host', frame)
+    if (frame?.type === 'welcome') welcomeFrame = frame
+    if (frame?.type === 'answer' && frame.phase === 'start') {
+      panelWin?.webContents.send('companion:host', frame)
+      showBubbleWindow(Math.max(bubbleHeight, 96))
+      return
+    }
+    panelWin?.webContents.send('companion:host', frame)
+    ballWin?.webContents.send('companion:host', frame)
   })
 
   socketInstance.on('connect', () => {
@@ -198,13 +281,15 @@ function connectHost () {
       platform: `${process.platform}/${process.arch}`,
       capabilities: { capture: true, hotkey: true, bubble: true },
     }))
-    win?.webContents.send('companion:host', { type: 'transport', state: 'connected' })
+    panelWin?.webContents.send('companion:host', { type: 'transport', state: 'connected' })
+    log('host connected')
   })
   socketInstance.on('data', (chunk) => decode(chunk))
   socketInstance.on('error', () => {})
   socketInstance.on('close', () => {
     connected = false
-    win?.webContents.send('companion:host', { type: 'transport', state: 'lost' })
+    panelWin?.webContents.send('companion:host', { type: 'transport', state: 'lost' })
+    log('host disconnected')
     setTimeout(connectHost, 2000)
   })
 }
@@ -228,38 +313,87 @@ function request (frame, timeoutMs = 45000) {
   })
 }
 
-// ---------------------------------------------------------------------- IPC
+// ---------------------------------------------------------------------- tray
 
-ipcMain.on('companion:interactive', (_event, value) => {
-  win?.setIgnoreMouseEvents(!value, { forward: true })
+function createTray () {
+  try {
+    const icon = nativeImage.createFromPath(join(HERE, 'assets', 'tray.png'))
+    tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon)
+    tray.setToolTip('桌面小助手 · 点球或 Ctrl+Shift+Space')
+    tray.setContextMenu(Menu.buildFromTemplate([
+      { label: '打开输入条', click: () => openPanel() },
+      { label: '新会话', click: () => { void request({ type: 'new-session' }, 20_000) } },
+      { type: 'separator' },
+      { label: '复位浮窗位置', click: resetBallPosition },
+      { label: '退出', click: () => app.quit() },
+    ]))
+    tray.on('click', () => openPanel())
+    log('tray created')
+  } catch (error) {
+    log(`tray failed: ${error?.message}`)
+  }
+}
+
+function resetBallPosition () {
+  const area = screen.getPrimaryDisplay().workArea
+  ballWin?.setPosition(area.x + area.width - BALL - EDGE, area.y + area.height - BALL - EDGE)
+  saveBallPosition()
+  if (panelOpen) positionPanel(panelHeight)
+  else if (bubbleHeight > 0) showBubbleWindow()
+}
+
+// ----------------------------------------------------------------------- IPC
+
+ipcMain.on('companion:ball-click', () => {
+  log('ball clicked')
+  if (panelOpen) closePanel()
+  else openPanel()
 })
 
-ipcMain.on('companion:close-panel', () => {
-  win?.setIgnoreMouseEvents(true, { forward: true })
-})
-
-ipcMain.on('companion:quit', () => {
-  app.quit()
+ipcMain.on('companion:log', (_event, message) => {
+  log(`[renderer] ${message}`)
 })
 
 ipcMain.on('companion:drag', (_event, phase) => {
-  if (!win) return
+  if (!ballWin) return
   if (phase === 'start') {
-    const point = screen.getCursorScreenPoint()
-    const [x, y] = win.getPosition()
-    dragging = { cursor: point, origin: { x, y } }
+    dragging = { cursor: screen.getCursorScreenPoint(), origin: ballWin.getPosition() }
   } else if (phase === 'move') {
     if (!dragging) return
     const point = screen.getCursorScreenPoint()
-    win.setPosition(
-      dragging.origin.x + (point.x - dragging.cursor.x),
-      dragging.origin.y + (point.y - dragging.cursor.y),
-    )
-  } else if (phase === 'end') {
+    const x = dragging.origin[0] + (point.x - dragging.cursor.x)
+    const y = dragging.origin[1] + (point.y - dragging.cursor.y)
+    ballWin.setPosition(x, y)
+    if (panelOpen) positionPanel(panelHeight)
+    else if (bubbleHeight > 0) showBubbleWindow()
+  } else {
+    if (!dragging) return
     dragging = null
-    saveBounds()
+    const clamped = clampToWorkArea(...ballWin.getPosition())
+    ballWin.setPosition(clamped.x, clamped.y)
+    saveBallPosition()
+    if (panelOpen) positionPanel(panelHeight)
+    else if (bubbleHeight > 0) showBubbleWindow()
   }
 })
+
+ipcMain.on('companion:close-panel', () => closePanel())
+
+ipcMain.on('companion:bubble-size', (_event, height) => {
+  if (typeof height !== 'number' || !Number.isFinite(height)) return
+  bubbleHeight = Math.max(80, Math.min(Math.round(height), 340))
+  if (!panelOpen) showBubbleWindow(bubbleHeight)
+})
+
+ipcMain.on('companion:panel-size', (_event, height) => {
+  if (typeof height !== 'number' || !Number.isFinite(height)) return
+  panelHeight = Math.max(96, Math.min(Math.round(height), 420))
+  if (panelOpen) positionPanel(panelHeight)
+})
+
+ipcMain.on('companion:hide-bubble', () => hideBubble())
+
+ipcMain.on('companion:quit', () => app.quit())
 
 ipcMain.handle('companion:submit', async (_event, payload) => {
   const wantsImage = payload?.capture === true
@@ -271,54 +405,50 @@ ipcMain.handle('companion:submit', async (_event, payload) => {
       return { ok: false, code: error?.code ?? 'CAPTURE_DENIED', detail: error?.message ?? '截图失败', retryable: true }
     }
   }
-  const response = await request({
+  return await request({
     type: 'submit',
     text: payload?.text ?? '',
     capture: { mode: wantsImage ? CAPTURE_MODE.screen : CAPTURE_MODE.none },
     image,
   })
-  return response
 })
 
-ipcMain.handle('companion:new-session', async () => await request({ type: 'new-session' }, 20000))
+ipcMain.handle('companion:new-session', async () => await request({ type: 'new-session' }, 20_000))
 
-// --------------------------------------------------------------------- boot
+// ---------------------------------------------------------------------- boot
 
 app.whenReady().then(() => {
   log(`ready electron=${process.versions.electron} port=${PORT}`)
   try {
-    const displays = screen.getAllDisplays()
-    log(`displays=${JSON.stringify(displays.map((d) => ({
-      id: d.id,
-      bounds: d.bounds,
-      workArea: d.workArea,
-      size: d.size,
-      scaleFactor: d.scaleFactor,
-    })))}`)
-    log(`primary=${JSON.stringify(screen.getPrimaryDisplay().workArea)} cursor=${JSON.stringify(screen.getCursorScreenPoint())}`)
-  } catch (error) {
-    log(`display probe failed: ${error?.message}`)
-  }
-  createWindow()
+    const display = screen.getPrimaryDisplay()
+    log(`display size=${JSON.stringify(display.size)} work=${JSON.stringify(display.workArea)} scale=${display.scaleFactor}`)
+  } catch {}
+  createBallWindow()
+  createPanelWindow()
+  createTray()
   connectHost()
   try {
     const ok = globalShortcut.register('Control+Shift+Space', () => {
       log('hotkey pressed')
-      openPanel()
+      if (panelOpen) closePanel()
+      else openPanel()
     })
     log(`hotkey registered=${ok}`)
   } catch (error) {
-    log(`hotkey registration failed: ${error?.message}`)
+    log(`hotkey failed: ${error?.message}`)
   }
 })
 
 process.on('uncaughtException', (error) => log(`uncaught: ${error?.stack ?? error}`))
 process.on('unhandledRejection', (error) => log(`unhandled: ${error?.stack ?? error}`))
 
-app.on('window-all-closed', (event) => {
-  event.preventDefault()
-})
+app.on('window-all-closed', () => {})
 
 app.on('before-quit', () => {
+  dragging = null
   globalShortcut.unregisterAll()
+  try {
+    tray?.destroy()
+  } catch {}
+  tray = null
 })

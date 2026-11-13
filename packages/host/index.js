@@ -164,6 +164,7 @@ class CompanionService {
         }
         greeted = true
         this.attachClient(socket)
+        this.helperAttempt = 0
         this.log(`helper connected (${frame.platform ?? 'unknown'})`)
         void this.greetClient()
         return
