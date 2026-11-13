@@ -1,0 +1,16 @@
+{
+  "name": "@local/dsh-companion-probe",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "One-shot probe: image message pipeline, attachment limits, subprocess, electron availability.",
+  "exports": {
+    ".": "./index.js",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}
