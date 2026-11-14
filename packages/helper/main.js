@@ -77,15 +77,17 @@ const HOTKEY_PRESETS = [
   ['', '关闭热键'],
 ]
 
-const defaultConfig = () => ({ hotkey: 'Control+Shift+Space', openAtLogin: false })
+const defaultConfig = () => ({ hotkey: 'Control+Shift+Space', openAtLogin: false, pet: 'circle' })
 let config = defaultConfig()
 
 function loadConfig () {
   try {
     const saved = JSON.parse(readFileSync(configFile(), 'utf8'))
     config = { ...defaultConfig(), ...saved }
-  } catch {
+  } catch (error) {
+    // A corrupt config must not brick the pet, but it must be visible.
     config = defaultConfig()
+    log(`config unreadable, using defaults: ${error?.message}`)
   }
   return config
 }
@@ -138,11 +140,11 @@ function applyLoginItem () {
 
 // ------------------------------------------------------------------ geometry
 
-function clampToWorkArea (x, y) {
+function clampToWorkArea (x, y, width = BALL, height = BALL) {
   const display = screen.getDisplayNearestPoint({ x, y })
   const area = display.workArea
-  const maxX = area.x + area.width - BALL
-  const maxY = area.y + area.height - BALL
+  const maxX = area.x + area.width - width
+  const maxY = area.y + area.height - height
   return {
     x: Math.min(Math.max(x, area.x), maxX),
     y: Math.min(Math.max(y, area.y), maxY),
@@ -173,7 +175,8 @@ function saveBallPosition () {
 function positionPanel (height) {
   if (!ballWin || !panelWin) return
   const [bx, by] = ballWin.getPosition()
-  const x = Math.round(bx + BALL - PANEL_W)
+  const ballWidth = ballWin.getBounds().width
+  const x = Math.round(bx + ballWidth - PANEL_W)
   const y = Math.round(by - GAP - height)
   const display = screen.getDisplayNearestPoint({ x: bx, y: by })
   const area = display.workArea
@@ -211,6 +214,9 @@ function createBallWindow () {
   ballWin.setAlwaysOnTop(true, 'screen-saver')
   ballWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   ballWin.loadFile(join(HERE, 'renderer', 'ball.html'))
+  ballWin.webContents.on('did-finish-load', () => {
+    ballWin?.webContents.send('companion:init', { pet: config.pet })
+  })
   ballWin.once('ready-to-show', () => {
     ballWin?.showInactive()
     log(`ball shown at ${JSON.stringify(ballWin?.getPosition())}`)
@@ -255,6 +261,7 @@ function openPanel () {
   panelWin.show()
   panelWin.focus()
   panelWin.webContents.send('companion:open')
+  ballWin?.webContents.send('companion:open')
   log('panel opened')
 }
 
@@ -262,6 +269,7 @@ function closePanel () {
   if (!panelOpen) return
   panelOpen = false
   panelWin?.webContents.send('companion:close')
+  ballWin?.webContents.send('companion:close')
   if (bubbleHeight > 0) {
     showBubbleWindow()
   } else {
@@ -364,10 +372,18 @@ function connectHost () {
       return
     }
     if (frame?.type === 'welcome') welcomeFrame = frame
-    if (frame?.type === 'answer' && frame.phase === 'start') {
-      panelWin?.webContents.send('companion:host', frame)
-      showBubbleWindow(Math.max(bubbleHeight, 96))
-      return
+    if (frame?.type === 'answer') {
+      if (frame.phase === 'start') {
+        panelWin?.webContents.send('companion:host', frame)
+        ballWin?.webContents.send('companion:host', frame)
+        showBubbleWindow(Math.max(bubbleHeight, 96))
+        return
+      }
+      if (frame.phase === 'delta') {
+        panelWin?.webContents.send('companion:host', frame)
+        ballWin?.webContents.send('companion:host', frame)
+        return
+      }
     }
     panelWin?.webContents.send('companion:host', frame)
     ballWin?.webContents.send('companion:host', frame)
@@ -470,7 +486,8 @@ function createTray () {
 
 function resetBallPosition () {
   const area = screen.getPrimaryDisplay().workArea
-  ballWin?.setPosition(area.x + area.width - BALL - EDGE, area.y + area.height - BALL - EDGE)
+  const bounds = ballWin?.getBounds() ?? { width: BALL, height: BALL }
+  ballWin?.setPosition(area.x + area.width - bounds.width - EDGE, area.y + area.height - bounds.height - EDGE)
   saveBallPosition()
   if (panelOpen) positionPanel(panelHeight)
   else if (bubbleHeight > 0) showBubbleWindow()
@@ -503,8 +520,8 @@ function buildPetMenu () {
     {
       label: '形象',
       submenu: [
-        { label: '圆球', type: 'radio', checked: true, click: () => {} },
-        { label: '大肥鱼（即将支持）', type: 'radio', checked: false, enabled: false },
+        { label: '圆球', type: 'radio', checked: config.pet === 'circle', click: () => setPet('circle') },
+        { label: '大肥鱼', type: 'radio', checked: config.pet === 'baifan', click: () => setPet('baifan') },
       ],
     },
     { type: 'separator' },
@@ -539,6 +556,14 @@ function showBall () {
   else if (bubbleHeight > 0) showBubbleWindow()
 }
 
+/** Switch the pet: persist, then let the page rebuild its renderer. */
+function setPet (pet) {
+  if (config.pet === pet) return
+  saveConfig({ pet })
+  log(`pet switched to ${pet}`)
+  ballWin?.webContents.send('companion:init', { pet })
+}
+
 ipcMain.on('companion:log', (_event, message) => {
   log(`[renderer] ${message}`)
 })
@@ -558,12 +583,31 @@ ipcMain.on('companion:drag', (_event, phase) => {
   } else {
     if (!dragging) return
     dragging = null
-    const clamped = clampToWorkArea(...ballWin.getPosition())
+    const bounds = ballWin.getBounds()
+    const clamped = clampToWorkArea(bounds.x, bounds.y, bounds.width, bounds.height)
     ballWin.setPosition(clamped.x, clamped.y)
     saveBallPosition()
     if (panelOpen) positionPanel(panelHeight)
     else if (bubbleHeight > 0) showBubbleWindow()
   }
+})
+
+ipcMain.on('companion:pet-size', (_event, size) => {
+  if (!ballWin || !size) return
+  const width = Math.max(48, Math.min(Math.round(size.width), 420))
+  const height = Math.max(48, Math.min(Math.round(size.height), 420))
+  const bounds = ballWin.getBounds()
+  if (bounds.width === width && bounds.height === height) return
+  ballWin.setBounds({
+    x: bounds.x + (bounds.width - width),
+    y: bounds.y + (bounds.height - height),
+    width,
+    height,
+  })
+  log(`pet window ${width}x${height}`)
+  saveBallPosition()
+  if (panelOpen) positionPanel(panelHeight)
+  else if (bubbleHeight > 0) showBubbleWindow()
 })
 
 ipcMain.on('companion:close-panel', () => closePanel())

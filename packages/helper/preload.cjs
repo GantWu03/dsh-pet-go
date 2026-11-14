@@ -4,6 +4,8 @@ contextBridge.exposeInMainWorld('companion', {
   // ball window
   ballClick: () => ipcRenderer.send('companion:ball-click'),
   drag: (phase) => ipcRenderer.send('companion:drag', phase),
+  petSize: (size) => ipcRenderer.send('companion:pet-size', size),
+  onInit: (cb) => ipcRenderer.on('companion:init', (_event, config) => cb(config)),
 
   // panel window
   submit: (payload) => ipcRenderer.invoke('companion:submit', payload),

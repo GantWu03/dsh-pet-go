@@ -1,0 +1,20 @@
+{
+  "name": "大肥鱼",
+  "source": {
+    "project": "dsh-pet",
+    "url": "https://github.com/PC2005-cloud/dsh-pet",
+    "license": "MIT"
+  },
+  "stage": { "width": 640, "height": 360 },
+  "viewport": { "x": 210, "y": 74, "width": 220, "height": 256 },
+  "preferred": { "width": 58, "height": 68 },
+  "states": {
+    "idle": { "clip": "idle.webm", "loop": true },
+    "listening": { "clip": "listening.webm", "loop": false, "then": "idle" },
+    "thinking": { "clip": "thinking.webm", "loop": true },
+    "answering": { "clip": "answering.webm", "loop": true },
+    "done": { "clip": "done.webm", "loop": false, "then": "idle" },
+    "drag": { "clip": "drag.webm", "loop": true },
+    "error": { "clip": "thinking.webm", "loop": true }
+  }
+}
