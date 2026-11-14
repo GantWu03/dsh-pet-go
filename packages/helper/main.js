@@ -531,7 +531,7 @@ function buildPetMenu () {
     {
       label: '形象',
       submenu: [
-        { label: '圆球', type: 'radio', checked: config.pet === 'circle', click: () => setPet('circle') },
+        { label: '默认', type: 'radio', checked: config.pet === 'circle', click: () => setPet('circle') },
         { label: '大肥鱼', type: 'radio', checked: config.pet === 'baifan', click: () => setPet('baifan') },
       ],
     },

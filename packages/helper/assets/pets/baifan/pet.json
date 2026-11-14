@@ -7,7 +7,7 @@
   },
   "stage": { "width": 640, "height": 360 },
   "viewport": { "x": 200, "y": 36, "width": 240, "height": 304 },
-  "preferred": { "width": 56, "height": 71 },
+  "preferred": { "width": 70, "height": 89 },
   "states": {
     "idle": { "clip": "idle.webm", "loop": true },
     "listening": { "clip": "listening.webm", "loop": false, "then": "idle" },
