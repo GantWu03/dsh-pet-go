@@ -44,6 +44,7 @@ const LOG_FILE = join(COMPANION_DIR, 'host.log')
 
 const RESTART_DELAYS = [1000, 2000, 4000, 8000, 16000, 30000]
 const WORKSPACE_TITLE = '桌面小助手'
+const SESSION_TITLE = '桌面小助手'
 
 export const name = 'companion'
 export const inject = ['attachments', 'agents']
@@ -310,6 +311,32 @@ class CompanionService {
     return { provider: model.provider, model: model.model }
   }
 
+  /**
+   * Give the dedicated session a stable, findable title instead of the
+   * model-generated one, so it is recognizable in the sidebar.
+   * @param {string} sessionId
+   */
+  async nameSession (sessionId) {
+    try {
+      const controller = this.ctx.get('sessionController')
+      if (!controller?.rename) return
+      try {
+        await controller.rename({ sessionId, title: SESSION_TITLE })
+      } catch (first) {
+        // The verb answers positional arguments in some builds.
+        try {
+          await controller.rename(sessionId, SESSION_TITLE)
+        } catch (second) {
+          this.log(`session rename skipped: ${first?.message} / ${second?.message}`)
+          return
+        }
+      }
+      this.log('session renamed')
+    } catch (error) {
+      this.log(`session rename skipped: ${error?.message}`)
+    }
+  }
+
   async ensureWorkspace () {
     try {
       const registry = this.ctx.get('workspaceRegistry')
@@ -358,6 +385,7 @@ class CompanionService {
         this.sessionId = handle.agent.id
         this.log(`session resumed: ${this.sessionId}`)
         await this.attachSession(this.sessionId)
+        await this.nameSession(this.sessionId)
         return handle.agent
       } catch (error) {
         this.log(`resume failed: ${error?.message}`)
@@ -377,6 +405,7 @@ class CompanionService {
     this.sessionId = handle.agent.id
     await this.writeState({ sessionId: this.sessionId, createdAt: Date.now() })
     await this.attachSession(this.sessionId)
+    await this.nameSession(this.sessionId)
     this.log(`session created: ${this.sessionId}`)
     return handle.agent
   }

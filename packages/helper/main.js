@@ -67,6 +67,74 @@ let panelHeight = 140
 let welcomeFrame = null
 
 const stateFile = () => join(app.getPath('userData'), 'window-state.json')
+const configFile = () => join(app.getPath('userData'), 'config.json')
+
+/** Hotkey presets offered from the tray; an empty string disables the hotkey. */
+const HOTKEY_PRESETS = [
+  ['Control+Shift+Space', 'Ctrl+Shift+Space'],
+  ['Control+Alt+Space', 'Ctrl+Alt+Space'],
+  ['Control+Shift+B', 'Ctrl+Shift+B'],
+  ['', '关闭热键'],
+]
+
+const defaultConfig = () => ({ hotkey: 'Control+Shift+Space', openAtLogin: false })
+let config = defaultConfig()
+
+function loadConfig () {
+  try {
+    const saved = JSON.parse(readFileSync(configFile(), 'utf8'))
+    config = { ...defaultConfig(), ...saved }
+  } catch {
+    config = defaultConfig()
+  }
+  return config
+}
+
+function saveConfig (patch) {
+  config = { ...config, ...patch }
+  try {
+    mkdirSync(dirname(configFile()), { recursive: true })
+    writeFileSync(configFile(), JSON.stringify(config, null, 2), 'utf8')
+  } catch (error) {
+    log(`config write failed: ${error?.message}`)
+  }
+}
+
+function applyHotkey () {
+  try {
+    globalShortcut.unregisterAll()
+  } catch {}
+  if (!config.hotkey) {
+    log('hotkey disabled')
+    refreshTray()
+    return
+  }
+  try {
+    const ok = globalShortcut.register(config.hotkey, () => {
+      log('hotkey pressed')
+      if (panelOpen) closePanel()
+      else openPanel()
+    })
+    log(`hotkey registered=${ok} key=${config.hotkey}`)
+  } catch (error) {
+    log(`hotkey failed: ${error?.message}`)
+  }
+  refreshTray()
+}
+
+function applyLoginItem () {
+  try {
+    app.setLoginItemSettings({
+      openAtLogin: Boolean(config.openAtLogin),
+      path: process.execPath,
+      args: [HERE],
+    })
+    log(`openAtLogin=${config.openAtLogin}`)
+  } catch (error) {
+    log(`login item failed: ${error?.message}`)
+  }
+  refreshTray()
+}
 
 // ------------------------------------------------------------------ geometry
 
@@ -346,18 +414,48 @@ function request (frame, timeoutMs = 45000) {
 
 // ---------------------------------------------------------------------- tray
 
+function buildTrayMenu () {
+  const hotkeyItems = HOTKEY_PRESETS.map(([value, label]) => ({
+    label,
+    type: 'radio',
+    checked: config.hotkey === value,
+    click: () => {
+      saveConfig({ hotkey: value })
+      applyHotkey()
+    },
+  }))
+  return Menu.buildFromTemplate([
+    { label: '打开输入条', click: () => openPanel() },
+    { label: '新会话', click: () => { void request({ type: 'new-session' }, 20_000) } },
+    { type: 'separator' },
+    { label: '快捷键', submenu: hotkeyItems },
+    {
+      label: '开机自启',
+      type: 'checkbox',
+      checked: Boolean(config.openAtLogin),
+      click: (item) => {
+        saveConfig({ openAtLogin: item.checked })
+        applyLoginItem()
+      },
+    },
+    { label: '复位浮窗位置', click: resetBallPosition },
+    { type: 'separator' },
+    { label: '退出', click: () => app.quit() },
+  ])
+}
+
+function refreshTray () {
+  try {
+    tray?.setContextMenu(buildTrayMenu())
+  } catch {}
+}
+
 function createTray () {
   try {
     const icon = nativeImage.createFromPath(join(HERE, 'assets', 'tray.png'))
     tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon)
-    tray.setToolTip('桌面小助手 · 点球或 Ctrl+Shift+Space')
-    tray.setContextMenu(Menu.buildFromTemplate([
-      { label: '打开输入条', click: () => openPanel() },
-      { label: '新会话', click: () => { void request({ type: 'new-session' }, 20_000) } },
-      { type: 'separator' },
-      { label: '复位浮窗位置', click: resetBallPosition },
-      { label: '退出', click: () => app.quit() },
-    ]))
+    tray.setToolTip('桌面小助手 · 点球或快捷键')
+    refreshTray()
     tray.on('click', () => openPanel())
     log('tray created')
   } catch (error) {
@@ -448,27 +546,33 @@ ipcMain.handle('companion:new-session', async () => await request({ type: 'new-s
 
 // ---------------------------------------------------------------------- boot
 
-app.whenReady().then(() => {
-  log(`ready electron=${process.versions.electron} port=${PORT}`)
-  try {
-    const display = screen.getPrimaryDisplay()
-    log(`display size=${JSON.stringify(display.size)} work=${JSON.stringify(display.workArea)} scale=${display.scaleFactor}`)
-  } catch {}
-  createBallWindow()
-  createPanelWindow()
-  createTray()
-  connectHost()
-  try {
-    const ok = globalShortcut.register('Control+Shift+Space', () => {
-      log('hotkey pressed')
-      if (panelOpen) closePanel()
-      else openPanel()
-    })
-    log(`hotkey registered=${ok}`)
-  } catch (error) {
-    log(`hotkey failed: ${error?.message}`)
-  }
-})
+const gotSingleInstanceLock = app.requestSingleInstanceLock()
+if (!gotSingleInstanceLock) {
+  // A second helper would draw a second ball; the supervisor only tracks the
+  // one it spawned, so refuse to start at all.
+  log('another instance owns the single-instance lock, exiting')
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    log('second instance launched -> opening panel')
+    openPanel()
+  })
+
+  app.whenReady().then(() => {
+    loadConfig()
+    log(`ready electron=${process.versions.electron} port=${PORT} hotkey=${config.hotkey || 'off'}`)
+    try {
+      const display = screen.getPrimaryDisplay()
+      log(`display size=${JSON.stringify(display.size)} work=${JSON.stringify(display.workArea)} scale=${display.scaleFactor}`)
+    } catch {}
+    createBallWindow()
+    createPanelWindow()
+    createTray()
+    applyHotkey()
+    applyLoginItem()
+    connectHost()
+  })
+}
 
 process.on('uncaughtException', (error) => log(`uncaught: ${error?.stack ?? error}`))
 process.on('unhandledRejection', (error) => log(`unhandled: ${error?.stack ?? error}`))
