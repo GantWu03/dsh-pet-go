@@ -54,8 +54,12 @@ export async function createClip (options = {}) {
     mount (host) {
       const frame = document.createElement('div')
       frame.className = 'pet-clip'
-      frame.style.width = `${boxWidth}px`
-      frame.style.height = `${boxHeight}px`
+      // Fit to the window, keep the viewport's aspect ratio, and express the
+      // crop in percentages so the art scales with the window instead of being
+      // clipped by a few pixels of DPI rounding.
+      frame.style.height = 'calc(100% - 12px)'
+      frame.style.aspectRatio = `${viewport.width} / ${viewport.height}`
+      frame.style.maxWidth = 'calc(100% - 12px)'
 
       const element = document.createElement('video')
       element.className = 'pet-clip-video'
@@ -64,10 +68,10 @@ export async function createClip (options = {}) {
       element.autoplay = true
       element.preload = 'auto'
       element.disablePictureInPicture = true
-      element.style.width = `${Math.round(pet.stage.width * scale)}px`
-      element.style.height = `${Math.round(pet.stage.height * scale)}px`
-      element.style.left = `${-Math.round(viewport.x * scale)}px`
-      element.style.top = `${-Math.round(viewport.y * scale)}px`
+      element.style.width = `${(pet.stage.width / viewport.width) * 100}%`
+      element.style.height = `${(pet.stage.height / viewport.height) * 100}%`
+      element.style.left = `${-(viewport.x / viewport.width) * 100}%`
+      element.style.top = `${-(viewport.y / viewport.height) * 100}%`
 
       element.addEventListener('ended', () => {
         if (fallback) {

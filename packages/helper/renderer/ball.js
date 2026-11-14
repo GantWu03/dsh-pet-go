@@ -48,7 +48,7 @@ async function init (petId) {
   }
   await renderer.mount(host)
   const size = renderer.measure()
-  api.log(`pet ${renderer.id} size=${size.width}x${size.height}`)
+  api.log(`pet ${renderer.id} size=${size.width}x${size.height} viewport=${window.innerWidth}x${window.innerHeight} dpr=${window.devicePixelRatio}`)
   api.petSize(size)
   currentState = 'idle'
   renderer.setState('idle')

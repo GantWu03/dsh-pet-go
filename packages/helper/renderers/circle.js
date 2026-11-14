@@ -13,8 +13,7 @@ export function createCircle () {
     mount (host) {
       const ball = document.createElement('div')
       ball.className = 'pet-circle'
-      ball.style.width = `${BALL_SIZE}px`
-      ball.style.height = `${BALL_SIZE}px`
+      // No inline size: CSS fits it to the actual window viewport.
       const left = document.createElement('span')
       left.className = 'eye left'
       const right = document.createElement('span')

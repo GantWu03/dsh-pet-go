@@ -13,6 +13,9 @@
 html, body {
   margin: 0;
   padding: 0;
+  /* Required: every pet measures itself with percentages of the window. */
+  width: 100%;
+  height: 100%;
   background: transparent;
   overflow: hidden;
   font-family: "Segoe UI", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
@@ -33,8 +36,9 @@ body.ball-page {
 #pet-host {
   width: 100%;
   height: 100%;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
 }
 
@@ -42,6 +46,10 @@ body.ball-page {
 
 .pet-circle {
   position: relative;
+  /* Fill the actual window minus a small margin. The window is kept square by
+     measure(), so this stays a circle even if the OS rounds the size. */
+  width: calc(100% - 16px);
+  height: calc(100% - 16px);
   border-radius: 50%;
   background: radial-gradient(circle at 32% 26%, #a9d6ff 0%, #6f8bff 38%, #7a4bff 72%, #5a2fd0 100%);
   /* Keep every shadow inside the window margin: a large blurred shadow gets
