@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('companion', {
   panelSize: (height) => ipcRenderer.send('companion:panel-size', height),
   hideBubble: () => ipcRenderer.send('companion:hide-bubble'),
   quit: () => ipcRenderer.send('companion:quit'),
+  contextMenu: () => ipcRenderer.send('companion:context-menu'),
   log: (message) => ipcRenderer.send('companion:log', String(message)),
 
   onHost: (cb) => ipcRenderer.on('companion:host', (_event, frame) => cb(frame)),

@@ -26,8 +26,8 @@ html, body {
 /* ------------------------------------------------------------- ball window */
 
 body.ball-page {
-  width: 72px;
-  height: 72px;
+  width: 80px;
+  height: 80px;
   display: grid;
   place-items: center;
 }
@@ -39,9 +39,11 @@ body.ball-page {
   border-radius: 50%;
   cursor: pointer;
   background: radial-gradient(circle at 32% 26%, #a9d6ff 0%, #6f8bff 38%, #7a4bff 72%, #5a2fd0 100%);
+  /* The window is only 80px: a large outer shadow gets clipped by the window
+     edge and reads as a translucent square. Keep every shadow inside the 8px
+     margin, and rely on inset highlights for depth. */
   box-shadow:
-    0 10px 26px rgba(70, 80, 255, 0.45),
-    0 2px 6px rgba(0, 0, 0, 0.35),
+    0 3px 8px rgba(20, 24, 60, 0.45),
     inset 0 1px 2px rgba(255, 255, 255, 0.55);
   transition: transform 160ms ease;
   -webkit-app-region: no-drag;
@@ -82,7 +84,7 @@ body.ball-page {
 /* ------------------------------------------------------------ panel window */
 
 body.panel-page {
-  width: 380px;
+  width: 388px;
   height: 100%;
 }
 
@@ -93,7 +95,7 @@ body.panel-page {
   flex-direction: column;
   justify-content: flex-end;
   align-items: flex-end;
-  padding: 6px;
+  padding: 10px;
   gap: 8px;
 }
 
@@ -105,7 +107,7 @@ body.panel-page {
   border: 1px solid var(--stroke);
   border-radius: 16px;
   padding: 10px;
-  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35);
   backdrop-filter: blur(18px);
   flex: 0 0 auto;
   animation: rise 140ms ease-out;
@@ -231,7 +233,7 @@ button.ghost:hover { color: var(--text); background: rgba(255, 255, 255, 0.14); 
   border: 1px solid var(--stroke);
   border-radius: 16px 16px 6px 16px;
   padding: 11px 13px;
-  box-shadow: 0 16px 38px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35);
   backdrop-filter: blur(18px);
   overflow: hidden;
   display: flex;
@@ -260,6 +262,31 @@ button.ghost:hover { color: var(--text); background: rgba(255, 255, 255, 0.14); 
 
 #bubble-text::-webkit-scrollbar { width: 6px; }
 #bubble-text::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.18); border-radius: 3px; }
+
+/* Rendered markdown inside the bubble */
+#bubble-text p { margin: 0 0 6px; }
+#bubble-text p:last-child { margin-bottom: 0; }
+#bubble-text ul,
+#bubble-text ol { margin: 0 0 6px; padding-left: 18px; }
+#bubble-text li { margin: 2px 0; }
+#bubble-text code {
+  font-family: "Cascadia Mono", "Consolas", ui-monospace, monospace;
+  font-size: 11.8px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+#bubble-text pre {
+  margin: 6px 0;
+  padding: 8px 10px;
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  overflow-x: auto;
+}
+#bubble-text pre code { background: none; padding: 0; font-size: 11.5px; line-height: 1.5; }
+#bubble-text a { color: #9db4ff; text-decoration: underline; }
+#bubble-text strong { color: #fff; }
 
 #bubble-meta {
   font-size: 11px;

@@ -53,11 +53,118 @@ function touchBubble () {
   armIdleTimers()
 }
 
-// ------------------------------------------------------------------ geometry
+// ------------------------------------------------------------------ markdown
+// Deliberately tiny and DOM-built: no innerHTML, no dependency. Covers what a
+// chat answer actually uses — fenced code, inline code, bold, lists, links.
+// Only http(s) links become anchors; everything else stays literal text.
+
+const SAFE_URL = /^https?:\/\//i
+
+function appendInline (parent, text) {
+  // Split on the three inline forms, keeping delimiters.
+  const parts = String(text).split(/(`[^`]+`|\*\*[^*]+\*\*|\[[^\]]+\]\([^)]+\))/g)
+  for (const part of parts) {
+    if (!part) continue
+    if (part.startsWith('`') && part.endsWith('`') && part.length > 2) {
+      const code = document.createElement('code')
+      code.textContent = part.slice(1, -1)
+      parent.appendChild(code)
+      continue
+    }
+    if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
+      const strong = document.createElement('strong')
+      strong.textContent = part.slice(2, -2)
+      parent.appendChild(strong)
+      continue
+    }
+    const link = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(part)
+    if (link) {
+      const url = link[2].trim()
+      if (SAFE_URL.test(url)) {
+        const anchor = document.createElement('a')
+        anchor.textContent = link[1]
+        anchor.href = url
+        anchor.title = url
+        parent.appendChild(anchor)
+        return
+      }
+      parent.appendChild(document.createTextNode(link[1]))
+      return
+    }
+    parent.appendChild(document.createTextNode(part))
+  }
+}
+
+function buildNodes (source) {
+  const nodes = []
+  const lines = String(source).split('\n')
+  let list = null
+  let listTag = ''
+
+  const closeList = () => {
+    if (list) {
+      nodes.push(list)
+      list = null
+      listTag = ''
+    }
+  }
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]
+
+    if (/^```/.test(line)) {
+      closeList()
+      const language = line.slice(3).trim()
+      const body = []
+      index += 1
+      while (index < lines.length && !/^```/.test(lines[index])) {
+        body.push(lines[index])
+        index += 1
+      }
+      const pre = document.createElement('pre')
+      const code = document.createElement('code')
+      if (language) code.dataset.language = language
+      code.textContent = body.join('\n')
+      pre.appendChild(code)
+      nodes.push(pre)
+      continue
+    }
+
+    const ordered = /^\s*\d+[.)]\s+(.*)$/.exec(line)
+    const bullet = /^\s*[-*+]\s+(.*)$/.exec(line)
+    if (ordered || bullet) {
+      const tag = ordered ? 'ol' : 'ul'
+      if (listTag !== tag) {
+        closeList()
+        list = document.createElement(tag)
+        listTag = tag
+      }
+      const item = document.createElement('li')
+      appendInline(item, ordered ? ordered[1] : bullet[1])
+      list.appendChild(item)
+      continue
+    }
+
+    closeList()
+    if (line.trim() === '') {
+      nodes.push(document.createElement('br'))
+      continue
+    }
+    const paragraph = document.createElement('p')
+    appendInline(paragraph, line)
+    nodes.push(paragraph)
+  }
+  closeList()
+  return nodes
+}
+
+function renderAnswer (text) {
+  bubbleText.replaceChildren(...buildNodes(text))
+}
 
 function reportBubbleHeight () {
   if (composerOpen || bubble.classList.contains('hidden')) return
-  const height = Math.ceil(bubble.getBoundingClientRect().height) + 12
+  const height = Math.ceil(bubble.getBoundingClientRect().height) + 20
   if (Math.abs(height - lastReported) < 4) return
   lastReported = height
   api.bubbleSize(height)
@@ -84,7 +191,7 @@ function hideToast () {
 
 function reportPanelHeight () {
   if (!composerOpen) return
-  const height = Math.ceil(panel.getBoundingClientRect().height) + 12
+  const height = Math.ceil(panel.getBoundingClientRect().height) + 20
   api.panelSize(height)
 }
 
@@ -232,6 +339,9 @@ api.onHost((frame) => {
         if (frame.ok === false) {
           showBubbleAnswer(answerText || '回答失败', true, frame.detail)
         } else {
+          // Re-render once at the end: streaming stays a cheap textContent
+          // append, and the final answer gets links/lists/code blocks.
+          if (answerText) renderAnswer(answerText)
           reportBubbleHeight()
           armIdleTimers()
         }

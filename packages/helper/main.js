@@ -33,8 +33,8 @@ import { PROTOCOL_VERSION, CAPTURE_MODE, encodeFrame, createFrameDecoder } from 
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 
-const BALL = 72
-const PANEL_W = 380
+const BALL = 80
+const PANEL_W = 388
 const GAP = 8
 const EDGE = 8
 
@@ -196,6 +196,7 @@ function createBallWindow () {
     y: position.y,
     frame: false,
     transparent: true,
+    backgroundColor: '#00000000',
     resizable: false,
     movable: false,
     minimizable: false,
@@ -223,6 +224,7 @@ function createPanelWindow () {
     height: panelHeight,
     frame: false,
     transparent: true,
+    backgroundColor: '#00000000',
     resizable: false,
     movable: false,
     skipTaskbar: true,
@@ -456,7 +458,10 @@ function createTray () {
     tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon)
     tray.setToolTip('桌面小助手 · 点球或快捷键')
     refreshTray()
-    tray.on('click', () => openPanel())
+    tray.on('click', () => {
+      showBall()
+      openPanel()
+    })
     log('tray created')
   } catch (error) {
     log(`tray failed: ${error?.message}`)
@@ -478,6 +483,61 @@ ipcMain.on('companion:ball-click', () => {
   if (panelOpen) closePanel()
   else openPanel()
 })
+
+ipcMain.on('companion:context-menu', () => {
+  buildPetMenu().popup({ window: ballWin ?? undefined })
+})
+
+/** Right-click menu on the pet — the primary entry point (ADR-016). */
+function buildPetMenu () {
+  const hotkeys = HOTKEY_PRESETS.map(([value, label]) => ({
+    label,
+    type: 'radio',
+    checked: config.hotkey === value,
+    click: () => {
+      saveConfig({ hotkey: value })
+      applyHotkey()
+    },
+  }))
+  return Menu.buildFromTemplate([
+    {
+      label: '形象',
+      submenu: [
+        { label: '圆球', type: 'radio', checked: true, click: () => {} },
+        { label: '大肥鱼（即将支持）', type: 'radio', checked: false, enabled: false },
+      ],
+    },
+    { type: 'separator' },
+    { label: '快捷键', submenu: hotkeys },
+    {
+      label: '开机自启',
+      type: 'checkbox',
+      checked: Boolean(config.openAtLogin),
+      click: (item) => {
+        saveConfig({ openAtLogin: item.checked })
+        applyLoginItem()
+      },
+    },
+    { label: '复位位置', click: resetBallPosition },
+    { type: 'separator' },
+    { label: '打开输入条', click: () => openPanel() },
+    {
+      label: '隐藏浮窗',
+      click: () => {
+        panelWin?.hide()
+        ballWin?.hide()
+      },
+    },
+    { label: '退出', click: () => app.quit() },
+  ])
+}
+
+function showBall () {
+  if (!ballWin) return
+  ballWin.showInactive()
+  if (panelOpen) positionPanel(panelHeight)
+  else if (bubbleHeight > 0) showBubbleWindow()
+}
 
 ipcMain.on('companion:log', (_event, message) => {
   log(`[renderer] ${message}`)

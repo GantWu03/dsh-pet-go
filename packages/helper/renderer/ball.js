@@ -46,6 +46,13 @@ for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
 window.addEventListener('mouseup', () => { if (drag) endDrag(drag.moved) })
 window.addEventListener('blur', () => { if (drag) endDrag(false) })
 
+// Right-click is the primary entry point (ADR-016): the native menu carries
+// the pet switch, hotkey, autostart and quit.
+window.addEventListener('contextmenu', (event) => {
+  event.preventDefault()
+  api.contextMenu()
+})
+
 api.onHost((frame) => {
   if (frame?.type === 'state') ball.classList.toggle('running', frame.state === 'running')
   if (frame?.type === 'welcome') ball.classList.toggle('running', frame.state === 'running')

@@ -1,0 +1,15 @@
+{
+  "name": "@dsh-pet-go/ws-fix",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "One-shot tool: repoint the workspace from the old project path to D:\\work\\dsh-pet-go.",
+  "exports": {
+    ".": "./index.js"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

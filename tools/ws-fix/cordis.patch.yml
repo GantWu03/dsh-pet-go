@@ -1,0 +1,4 @@
+- insert:
+    - id: dsh-pet-go-ws-fix
+      name: '@dsh-pet-go/ws-fix'
+      config: {}
