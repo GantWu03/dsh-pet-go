@@ -328,6 +328,15 @@ api.onHost((frame) => {
         bubbleText.textContent = '思考中…'
         bubbleMeta.classList.add('hidden')
         reportBubbleHeight()
+      } else if (frame.phase === 'tool') {
+        // The model is out investigating; keep the bubble alive and honest
+        // instead of leaving it empty for a dozen tool calls.
+        if (!answerText) {
+          bubble.classList.remove('hidden')
+          bubble.classList.add('thinking')
+          bubbleText.textContent = '让我想想呢…'
+          reportBubbleHeight()
+        }
       } else if (frame.phase === 'delta') {
         bubble.classList.remove('thinking')
         answerText += frame.text ?? ''
@@ -338,13 +347,24 @@ api.onHost((frame) => {
         bubble.classList.remove('thinking')
         if (frame.ok === false) {
           showBubbleAnswer(answerText || '回答失败', true, frame.detail)
-        } else {
+        } else if (answerText) {
           // Re-render once at the end: streaming stays a cheap textContent
           // append, and the final answer gets links/lists/code blocks.
-          if (answerText) renderAnswer(answerText)
+          renderAnswer(answerText)
           reportBubbleHeight()
           armIdleTimers()
         }
+        // A step that only called tools ends with no text: not a finished
+        // answer, so keep the bubble waiting for the next step.
+      }
+      break
+    }
+    case 'state': {
+      if (frame.state === 'idle' && !answerText && !bubble.classList.contains('hidden')) {
+        bubbleText.textContent = '（这次没有拿到文字回答）'
+        bubble.classList.remove('thinking')
+        reportBubbleHeight()
+        armIdleTimers()
       }
       break
     }

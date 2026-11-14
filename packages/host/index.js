@@ -53,16 +53,41 @@ const SESSION_TITLE = '桌面小助手'
  */
 const SESSION_PRESET = process.env.DSH_PET_GO_PRESET || 'standard'
 /**
- * Guidance shipped with every question. Deliberately NOT a rule engine: we do
- * not detect the app or the document for the model — it sees the screenshot and
- * decides what to investigate, with the whole machine available.
+ * The session's standing instructions live in AGENTS.md inside its workspace:
+ * DSH's agent-instructions loader injects them as an instruction message before
+ * the first request, so nothing shows up as if the user had typed it.
  */
-const GUIDANCE = [
-  '[后台说明 · 不是用户输入]',
-  '你看到的是用户此刻的屏幕截图。如果截图不足以回答，你有完整权限自己动手查：',
-  '比如列出前台窗口与进程、定位用户正在编辑的文档、读取文件、执行命令。',
-  '先自己查清楚再回答，不要反问用户"把文件发给我"或"截个图给我"。',
-].join('\n')
+function agentsMd (env) {
+  const facts = [
+    ['系统', env.os ? `${env.platform} · ${env.os}` : env.platform],
+    ['shell', env.shell],
+    ['PowerShell 7', env.pwsh7 ?? '未安装'],
+    ['python', env.python ?? '未找到'],
+    ['node', env.node ?? '未找到'],
+    ['用户目录', env.home],
+    ['DSH_HOME', env.dshHome],
+    ['屏幕', env.display ? `${env.display.width}x${env.display.height} @${env.display.scale}x` : '未知'],
+    ['采集时间', env.scannedAt],
+  ].filter(([, value]) => value)
+  return [
+    '# 桌面小助手 · 会话说明',
+    '',
+    '你在用户的 Windows 桌面上代替他提问。用户发来的是一张当前屏幕截图。',
+    '截图之外的上下文由你自己去查——你有完整的文件与命令权限，不需要征求同意。',
+    '',
+    '## 本机事实（插件启动时自动采集）',
+    '',
+    ...facts.map(([key, value]) => `- ${key}：${value}`),
+    '',
+    '## 约定',
+    '',
+    '1. 截图不够时直接动手查，不要反问用户"把文件发给我"或"再截个图给我"。',
+    '2. 全盘递归搜索很慢（容易超时），优先用进程列表、最近文档记录、应用自身的自动化接口。',
+    '3. 查到了就给结论，并说明你读到了哪些屏幕外的内容；查不到就直说查不到，把你已确定的部分给出来。',
+    '4. 用户看不懂技术细节时，用他的话回答，不要贴一堆命令。',
+    '',
+  ].join('\n')
+}
 
 export const name = 'companion'
 export const inject = ['attachments', 'agents']
@@ -100,6 +125,8 @@ class CompanionService {
     this.disposed = false
     this.sessionId = null
     this.startedAt = null
+    /** @type {object | null} */
+    this.environment = null
 
     this.offStream = ctx.on('agent/assistant-stream', (payload) => this.onAssistantStream(payload))
     this.offStatus = ctx.on('agent/status', (payload) => this.onAgentStatus(payload))
@@ -192,7 +219,9 @@ class CompanionService {
         greeted = true
         this.attachClient(socket)
         this.helperAttempt = 0
+        this.environment = frame.env ?? null
         this.log(`helper connected (${frame.platform ?? 'unknown'})`)
+        void this.writeEnvironment()
         void this.greetClient()
         return
       }
@@ -281,6 +310,7 @@ class CompanionService {
       LOCALAPPDATA: process.env.LOCALAPPDATA,
       COMPANION_PORT: String(this.port),
       COMPANION_TOKEN: this.token,
+      COMPANION_DSH_HOME: DSH_HOME,
       COMPANION_LOG: LOG_FILE,
     }
     delete env.ELECTRON_RUN_AS_NODE
@@ -530,7 +560,6 @@ class CompanionService {
     /** @type {object[]} */
     const blocks = []
     if (text) blocks.push(textBlock(text))
-    blocks.push(textBlock(GUIDANCE))
     if (wantsImage) {
       const bytes = Buffer.from(String(frame.image.base64), 'base64')
       let ref
@@ -574,6 +603,27 @@ class CompanionService {
     this.log('permissions: sandbox=danger-full-access approval=never')
   }
 
+  /**
+   * Persist the collected machine facts and rewrite the session's AGENTS.md.
+   * Called once per helper connection (i.e. once per DSH launch), never per
+   * question and never per session.
+   * @returns {Promise<void>}
+   */
+  async writeEnvironment () {
+    const env = this.environment
+    if (!env) return
+    const stateDir = join(DSH_HOME, 'dsh-pet-go')
+    try {
+      await mkdir(stateDir, { recursive: true })
+      await writeFile(join(stateDir, 'env.json'), JSON.stringify(env, null, 2), 'utf8')
+      await mkdir(WORKSPACE_DIR, { recursive: true })
+      await writeFile(join(WORKSPACE_DIR, 'AGENTS.md'), agentsMd(env), 'utf8')
+      this.log('AGENTS.md written')
+    } catch (error) {
+      this.log(`AGENTS.md failed: ${error?.message}`)
+    }
+  }
+
   // -------------------------------------------------------------------- relay
 
   onAssistantStream ({ agent, frame } = {}) {
@@ -588,6 +638,10 @@ class CompanionService {
       if (chunk?.type === 'text-delta') {
         this.answerBuffer = (this.answerBuffer ?? '') + chunk.text
         this.send({ type: 'answer', phase: 'delta', text: chunk.text })
+      } else if (chunk?.type === 'block-start' && chunk.blockType === 'tool-call') {
+        // The model is going off to investigate; the bubble says so instead of
+        // sitting empty for the next 18 tool calls.
+        this.send({ type: 'answer', phase: 'tool' })
       }
       return
     }

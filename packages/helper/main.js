@@ -30,6 +30,8 @@ import { fileURLToPath } from 'node:url'
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 
 import { PROTOCOL_VERSION, CAPTURE_MODE, encodeFrame, createFrameDecoder } from '../shared/src/protocol.js'
+import { collectEnvironment } from './awareness/env.js'
+import os from 'node:os'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 
@@ -41,6 +43,7 @@ const EDGE = 8
 const PORT = Number(process.env.COMPANION_PORT)
 const TOKEN = process.env.COMPANION_TOKEN
 const LOG_FILE = process.env.COMPANION_LOG
+const DSH_HOME = process.env.COMPANION_DSH_HOME || join(os.homedir(), '.dsh')
 
 function log (line) {
   if (!LOG_FILE) return
@@ -72,6 +75,8 @@ let welcomeFrame = null
  * drag). Every move therefore uses setBounds with this size explicitly.
  */
 let petSize = { width: BALL, height: BALL }
+/** Machine facts, collected once per helper launch and shipped in the hello. */
+let environment = null
 
 const stateFile = () => join(app.getPath('userData'), 'window-state.json')
 const configFile = () => join(app.getPath('userData'), 'config.json')
@@ -416,6 +421,7 @@ function connectHost () {
       token: TOKEN,
       platform: `${process.platform}/${process.arch}`,
       capabilities: { capture: true, hotkey: true, bubble: true },
+      env: environment,
     }))
     panelWin?.webContents.send('companion:host', { type: 'transport', state: 'connected' })
     log('host connected')
@@ -698,6 +704,16 @@ if (!gotSingleInstanceLock) {
 
   app.whenReady().then(() => {
     loadConfig()
+    try {
+      const display = screen.getPrimaryDisplay()
+      environment = collectEnvironment({
+        dshHome: DSH_HOME,
+        display: { width: display.size.width, height: display.size.height, scaleFactor: display.scaleFactor },
+      })
+      log(`env: python=${environment.python ?? '-'} node=${environment.node ?? '-'} shell=${environment.shell}`)
+    } catch (error) {
+      log(`env failed: ${error?.message}`)
+    }
     log(`ready electron=${process.versions.electron} port=${PORT} hotkey=${config.hotkey || 'off'}`)
     try {
       const display = screen.getPrimaryDisplay()
