@@ -179,6 +179,7 @@ function createPanelWindow () {
 function openPanel () {
   if (!panelWin || !ballWin) return
   panelOpen = true
+  stopHoverWatch()
   positionPanel(panelHeight)
   panelWin.setIgnoreMouseEvents(false)
   panelWin.show()
@@ -208,12 +209,42 @@ function showBubbleWindow (height) {
   positionPanel(target)
   panelWin.setIgnoreMouseEvents(true, { forward: true })
   if (!panelWin.isVisible()) panelWin.showInactive()
+  startHoverWatch()
 }
 
 function hideBubble () {
   bubbleHeight = 0
+  stopHoverWatch()
   if (panelOpen) return
   panelWin?.hide()
+}
+
+// The bubble window is mouse-transparent, so it cannot receive hover events
+// itself. Poll the cursor against its bounds instead; the renderer uses a
+// transition into the bubble to reset its fade-out countdown.
+let hoverTimer = null
+let lastHover = false
+
+function startHoverWatch () {
+  if (hoverTimer) return
+  lastHover = false
+  hoverTimer = setInterval(() => {
+    if (!panelWin || !panelWin.isVisible() || panelOpen) return
+    const point = screen.getCursorScreenPoint()
+    const bounds = panelWin.getBounds()
+    const inside = point.x >= bounds.x && point.x < bounds.x + bounds.width &&
+      point.y >= bounds.y && point.y < bounds.y + bounds.height
+    if (inside !== lastHover) {
+      lastHover = inside
+      panelWin.webContents.send('companion:hover', inside)
+    }
+  }, 250)
+}
+
+function stopHoverWatch () {
+  if (hoverTimer) clearInterval(hoverTimer)
+  hoverTimer = null
+  lastHover = false
 }
 
 // ---------------------------------------------------------------- screen cap

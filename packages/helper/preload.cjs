@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('companion', {
   log: (message) => ipcRenderer.send('companion:log', String(message)),
 
   onHost: (cb) => ipcRenderer.on('companion:host', (_event, frame) => cb(frame)),
+  onHover: (cb) => ipcRenderer.on('companion:hover', (_event, inside) => cb(inside)),
   onOpen: (cb) => ipcRenderer.on('companion:open', () => cb()),
   onClose: (cb) => ipcRenderer.on('companion:close', () => cb()),
 })

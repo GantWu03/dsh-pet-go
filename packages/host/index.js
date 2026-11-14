@@ -463,7 +463,9 @@ class CompanionService {
       return
     }
     if (frame?.type === 'end') {
-      this.send({ type: 'answer', phase: 'end', ok: frame.outcome?.kind === 'committed' })
+      const ok = frame.outcome?.kind === 'committed'
+      this.log(`answer end ok=${ok}`)
+      this.send({ type: 'answer', phase: 'end', ok })
     }
   }
 

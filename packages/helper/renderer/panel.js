@@ -18,6 +18,41 @@ let answerText = ''
 let composerOpen = false
 let lastReported = 0
 
+// Bubble lifetime: 20s idle -> faded, +10s -> gone. Hovering resets it.
+const FADE_AFTER_MS = 20_000
+const HIDE_AFTER_MS = 10_000
+let fadeTimer = null
+let hideTimer = null
+
+function clearIdleTimers () {
+  if (fadeTimer) clearTimeout(fadeTimer)
+  if (hideTimer) clearTimeout(hideTimer)
+  fadeTimer = null
+  hideTimer = null
+}
+
+function armIdleTimers () {
+  clearIdleTimers()
+  if (composerOpen) return
+  bubble.classList.remove('faded')
+  fadeTimer = setTimeout(() => {
+    if (!composerOpen) bubble.classList.add('faded')
+  }, FADE_AFTER_MS)
+  hideTimer = setTimeout(() => {
+    if (composerOpen) return
+    bubble.classList.add('hidden')
+    bubble.classList.remove('faded')
+    answerText = ''
+    api.hideBubble()
+  }, FADE_AFTER_MS + HIDE_AFTER_MS)
+}
+
+function touchBubble () {
+  if (composerOpen) return
+  if (bubble.classList.contains('hidden')) return
+  armIdleTimers()
+}
+
 // ------------------------------------------------------------------ geometry
 
 function reportBubbleHeight () {
@@ -55,6 +90,8 @@ function reportPanelHeight () {
 
 function showComposer () {
   composerOpen = true
+  clearIdleTimers()
+  bubble.classList.remove('faded')
   panel.classList.remove('hidden')
   bubble.classList.add('hidden')
   hideToast()
@@ -150,7 +187,7 @@ newBtn.addEventListener('click', async () => {
 // -------------------------------------------------------------------- bubble
 
 function showBubbleAnswer (text, isError, detail) {
-  bubble.classList.remove('hidden', 'thinking')
+  bubble.classList.remove('hidden', 'thinking', 'faded')
   bubble.classList.toggle('error', Boolean(isError))
   bubbleText.textContent = text
   if (detail) {
@@ -160,6 +197,7 @@ function showBubbleAnswer (text, isError, detail) {
     bubbleMeta.classList.add('hidden')
   }
   reportBubbleHeight()
+  armIdleTimers()
 }
 
 // ---------------------------------------------------------------- host frames
@@ -195,6 +233,7 @@ api.onHost((frame) => {
           showBubbleAnswer(answerText || '回答失败', true, frame.detail)
         } else {
           reportBubbleHeight()
+          armIdleTimers()
         }
       }
       break
@@ -209,11 +248,24 @@ api.onHost((frame) => {
 
 api.onOpen(() => showComposer())
 
+api.onHover((inside) => {
+  if (composerOpen || bubble.classList.contains('hidden')) return
+  if (inside) {
+    // While the pointer is on the bubble it must never fade; the countdown
+    // starts again the moment it leaves.
+    clearIdleTimers()
+    bubble.classList.remove('faded')
+  } else {
+    armIdleTimers()
+  }
+})
+
 api.onClose(() => {
   hideComposer()
   if (answerText) {
     bubble.classList.remove('hidden')
     reportBubbleHeight()
+    armIdleTimers()
   } else {
     bubble.classList.add('hidden')
   }

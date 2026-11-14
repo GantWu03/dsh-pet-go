@@ -239,6 +239,12 @@ button.ghost:hover { color: var(--text); background: rgba(255, 255, 255, 0.14); 
   gap: 6px;
   flex: 0 0 auto;
   animation: rise 160ms ease-out;
+  transition: opacity 700ms ease;
+}
+
+/* Idle long enough: dim, then disappear (see armIdleTimers in panel.js). */
+#bubble.faded {
+  opacity: 0.38;
 }
 
 #bubble-text {
