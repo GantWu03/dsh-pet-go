@@ -104,6 +104,8 @@ class CompanionService {
     this.offStream = ctx.on('agent/assistant-stream', (payload) => this.onAssistantStream(payload))
     this.offStatus = ctx.on('agent/status', (payload) => this.onAgentStatus(payload))
     this.offError = ctx.on('agent/error', (payload) => this.onAgentError(payload))
+    /** @type {{ dispose: () => Promise<void> } | null} */
+    this.handle = null
   }
 
   // ---------------------------------------------------------------- lifecycle
@@ -129,6 +131,11 @@ class CompanionService {
 
   dispose () {
     this.disposed = true
+    // A turn parked on an approval would otherwise outlive the plugin.
+    try {
+      void this.handle?.dispose?.()
+    } catch {}
+    this.handle = null
     if (this.restartTimer) clearTimeout(this.restartTimer)
     this.restartTimer = null
     try { this.offStream?.() } catch {}
@@ -430,6 +437,7 @@ class CompanionService {
           agentOptions: this.modelOptions(),
         })
         this.sessionId = handle.agent.id
+        this.handle = handle
         this.grantFullAccess(handle.agent)
         this.log(`session resumed: ${this.sessionId}`)
         await this.attachSession(this.sessionId)
@@ -466,6 +474,7 @@ class CompanionService {
         : undefined,
     })
     this.sessionId = handle.agent.id
+    this.handle = handle
     this.grantFullAccess(handle.agent)
     await this.writeState({ sessionId: this.sessionId, createdAt: Date.now() })
     await this.attachSession(this.sessionId)
@@ -552,10 +561,17 @@ class CompanionService {
   grantFullAccess (agent) {
     try {
       agent.session.append('sandbox/mode', { mode: 'danger-full-access' })
-      this.log('sandbox mode: danger-full-access')
     } catch (error) {
       this.log(`sandbox mode failed: ${error?.message}`)
     }
+    try {
+      // Nobody can answer an approval prompt for a plugin-driven session: a
+      // 'ask' policy would park the turn forever. Full access already granted.
+      this.ctx.get('approval')?.setPolicy(agent, 'never')
+    } catch (error) {
+      this.log(`approval policy failed: ${error?.message}`)
+    }
+    this.log('permissions: sandbox=danger-full-access approval=never')
   }
 
   // -------------------------------------------------------------------- relay
