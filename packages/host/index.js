@@ -52,6 +52,17 @@ const SESSION_TITLE = '桌面小助手'
  * enough. `standard` is the normal interactive preset.
  */
 const SESSION_PRESET = process.env.DSH_PET_GO_PRESET || 'standard'
+/**
+ * Guidance shipped with every question. Deliberately NOT a rule engine: we do
+ * not detect the app or the document for the model — it sees the screenshot and
+ * decides what to investigate, with the whole machine available.
+ */
+const GUIDANCE = [
+  '[后台说明 · 不是用户输入]',
+  '你看到的是用户此刻的屏幕截图。如果截图不足以回答，你有完整权限自己动手查：',
+  '比如列出前台窗口与进程、定位用户正在编辑的文档、读取文件、执行命令。',
+  '先自己查清楚再回答，不要反问用户"把文件发给我"或"截个图给我"。',
+].join('\n')
 
 export const name = 'companion'
 export const inject = ['attachments', 'agents']
@@ -419,6 +430,7 @@ class CompanionService {
           agentOptions: this.modelOptions(),
         })
         this.sessionId = handle.agent.id
+        this.grantFullAccess(handle.agent)
         this.log(`session resumed: ${this.sessionId}`)
         await this.attachSession(this.sessionId)
         await this.nameSession(this.sessionId)
@@ -454,6 +466,7 @@ class CompanionService {
         : undefined,
     })
     this.sessionId = handle.agent.id
+    this.grantFullAccess(handle.agent)
     await this.writeState({ sessionId: this.sessionId, createdAt: Date.now() })
     await this.attachSession(this.sessionId)
     await this.nameSession(this.sessionId)
@@ -508,8 +521,7 @@ class CompanionService {
     /** @type {object[]} */
     const blocks = []
     if (text) blocks.push(textBlock(text))
-    const hint = this.contextHint(frame.context)
-    if (hint) blocks.push(textBlock(hint))
+    blocks.push(textBlock(GUIDANCE))
     if (wantsImage) {
       const bytes = Buffer.from(String(frame.image.base64), 'base64')
       let ref
@@ -532,24 +544,18 @@ class CompanionService {
   }
 
   /**
-   * Turn the helper's foreground probe into one labelled context block. The
-   * dedicated session runs the `standard` preset, so it can open the file
-   * itself when the screenshot is not enough; all it lacks is knowing which
-   * file is in front.
-   * @param {{app?: string, title?: string, docPath?: string, page?: number} | undefined} context
-   * @returns {string | null}
+   * Give the dedicated session the same permissions its owner has: the model
+   * must be able to inspect the machine when the screenshot is not enough.
+   * Recorded as the session's own `sandbox/mode` event, so it survives resume.
+   * @param {import('@deepseek-ai/dsh-agent').Agent} agent
    */
-  contextHint (context) {
-    if (!context?.app) return null
-    const lines = [
-      '[后台信息 · 不是用户输入]',
-      `用户当前前台窗口：${context.app}${context.title ? ` — ${context.title}` : ''}`,
-    ]
-    if (context.docPath) {
-      lines.push(`该文档的本地路径：${context.docPath}${context.page ? `（用户正看到第 ${context.page} 页）` : ''}`)
+  grantFullAccess (agent) {
+    try {
+      agent.session.append('sandbox/mode', { mode: 'danger-full-access' })
+      this.log('sandbox mode: danger-full-access')
+    } catch (error) {
+      this.log(`sandbox mode failed: ${error?.message}`)
     }
-    lines.push('截图只是当前视口。如果回答需要更多上下文，可以自己用工具读取上面这个文件，不要因此反问用户。')
-    return lines.join('\n')
   }
 
   // -------------------------------------------------------------------- relay

@@ -30,7 +30,6 @@ import { fileURLToPath } from 'node:url'
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 
 import { PROTOCOL_VERSION, CAPTURE_MODE, encodeFrame, createFrameDecoder } from '../shared/src/protocol.js'
-import { probeForeground } from './awareness/foreground.js'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 
@@ -73,31 +72,6 @@ let welcomeFrame = null
  * drag). Every move therefore uses setBounds with this size explicitly.
  */
 let petSize = { width: BALL, height: BALL }
-
-/**
- * Foreground app captured when the user *summons* the pet — by the time they
- * press send our own composer owns the foreground, so probing then would only
- * ever describe ourselves.
- */
-let lastContext = null
-let lastContextAt = 0
-const CONTEXT_TTL_MS = 120_000
-
-function rememberForeground () {
-  void probeForeground()
-    .then((context) => {
-      if (!context || context.pid === process.pid) return
-      lastContext = context
-      lastContextAt = Date.now()
-      log(`foreground: ${context.app} ${context.title ?? ''} ${context.docPath ?? ''}`)
-    })
-    .catch(() => {})
-}
-
-function currentContext () {
-  if (lastContext && Date.now() - lastContextAt < CONTEXT_TTL_MS) return lastContext
-  return null
-}
 
 const stateFile = () => join(app.getPath('userData'), 'window-state.json')
 const configFile = () => join(app.getPath('userData'), 'config.json')
@@ -286,8 +260,6 @@ function createPanelWindow () {
 
 function openPanel () {
   if (!panelWin || !ballWin) return
-  // Capture what the user was looking at *before* we take focus.
-  rememberForeground()
   panelOpen = true
   stopHoverWatch()
   positionPanel(panelHeight)
@@ -692,26 +664,19 @@ ipcMain.on('companion:quit', () => app.quit())
 
 ipcMain.handle('companion:submit', async (_event, payload) => {
   const wantsImage = payload?.capture === true
-  // Screenshot and foreground probe run together: the probe (~300ms) is what
-  // lets the model open the document itself when the viewport is not enough.
-  const [capture, context] = await Promise.all([
-    wantsImage
-      ? captureActiveDisplay().then((value) => ({ ok: true, value })).catch((error) => ({ ok: false, error }))
-      : Promise.resolve(null),
-    Promise.resolve(currentContext()),
-  ])
-  if (capture && capture.ok === false) {
-    const error = capture.error
-    return { ok: false, code: error?.code ?? 'CAPTURE_DENIED', detail: error?.message ?? '截图失败', retryable: true }
+  let image = null
+  if (wantsImage) {
+    try {
+      image = await captureActiveDisplay()
+    } catch (error) {
+      return { ok: false, code: error?.code ?? 'CAPTURE_DENIED', detail: error?.message ?? '截图失败', retryable: true }
+    }
   }
-  const image = capture?.value ?? null
-  if (context) log(`context: ${context.app} ${context.docPath ?? ''} ${context.page ?? ''}`)
   return await request({
     type: 'submit',
     text: payload?.text ?? '',
     capture: { mode: wantsImage ? CAPTURE_MODE.screen : CAPTURE_MODE.none },
     image,
-    context,
   })
 })
 
