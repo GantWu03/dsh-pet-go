@@ -217,11 +217,15 @@ class CompanionService {
   // ------------------------------------------------------------------- helper
 
   resolveElectron () {
+    const homeElectron = process.platform === 'win32'
+      ? join(DSH_HOME, 'electron', 'electron.exe')
+      : process.platform === 'darwin'
+        ? join(DSH_HOME, 'electron', 'Electron.app', 'Contents', 'MacOS', 'Electron')
+        : join(DSH_HOME, 'electron', 'electron')
     const candidates = [
       process.env.DSH_COMPANION_ELECTRON,
-      'D:/实习/vibecoding/speech/node_modules/electron/dist/electron.exe',
+      homeElectron,
       join(REPO_ROOT, 'node_modules', 'electron', 'dist', 'electron.exe'),
-      join(REPO_ROOT, 'node_modules', 'electron', 'dist', 'Electron.app', 'Contents', 'MacOS', 'Electron'),
     ].filter(Boolean)
     for (const candidate of candidates) {
       try {
@@ -238,6 +242,10 @@ class CompanionService {
       this.log('helper electron binary not found; set DSH_COMPANION_ELECTRON')
       return
     }
+    this.log(`using electron: ${electron}`)
+    // Deliberately a whitelist, not a copy of process.env: DSH runs inside
+    // Electron, and letting ELECTRON_RUN_AS_NODE (or any NODE_OPTIONS) reach the
+    // helper turns it into a plain Node process with no BrowserWindow at all.
     const env = {
       PATH: process.env.PATH,
       SYSTEMROOT: process.env.SYSTEMROOT,
@@ -249,6 +257,7 @@ class CompanionService {
       COMPANION_TOKEN: this.token,
       COMPANION_LOG: LOG_FILE,
     }
+    delete env.ELECTRON_RUN_AS_NODE
     try {
       const child = spawn(electron, [HELPER_DIR], { stdio: 'ignore', env, windowsHide: true })
       this.helper = child
