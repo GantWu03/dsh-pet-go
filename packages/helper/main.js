@@ -65,6 +65,13 @@ let panelOpen = false
 let bubbleHeight = 0
 let panelHeight = 140
 let welcomeFrame = null
+/**
+ * The pet window's LOGICAL size, owned by us rather than read back from the OS.
+ * On Windows at non-100% DPI, `setPosition()` makes Electron recompute the
+ * window size and the reported bounds drift (69x84 grew to 144x147 after one
+ * drag). Every move therefore uses setBounds with this size explicitly.
+ */
+let petSize = { width: BALL, height: BALL }
 
 const stateFile = () => join(app.getPath('userData'), 'window-state.json')
 const configFile = () => join(app.getPath('userData'), 'config.json')
@@ -175,8 +182,7 @@ function saveBallPosition () {
 function positionPanel (height) {
   if (!ballWin || !panelWin) return
   const [bx, by] = ballWin.getPosition()
-  const ballWidth = ballWin.getBounds().width
-  const x = Math.round(bx + ballWidth - PANEL_W)
+  const x = Math.round(bx + petSize.width - PANEL_W)
   const y = Math.round(by - GAP - height)
   const display = screen.getDisplayNearestPoint({ x: bx, y: by })
   const area = display.workArea
@@ -288,6 +294,7 @@ function showBubbleWindow (height) {
   panelWin.setIgnoreMouseEvents(true, { forward: true })
   if (!panelWin.isVisible()) panelWin.showInactive()
   startHoverWatch()
+  log(`bubble ${target} ball=${JSON.stringify(ballWin?.getBounds())}`)
 }
 
 function hideBubble () {
@@ -486,8 +493,12 @@ function createTray () {
 
 function resetBallPosition () {
   const area = screen.getPrimaryDisplay().workArea
-  const bounds = ballWin?.getBounds() ?? { width: BALL, height: BALL }
-  ballWin?.setPosition(area.x + area.width - bounds.width - EDGE, area.y + area.height - bounds.height - EDGE)
+  ballWin?.setBounds({
+    x: area.x + area.width - petSize.width - EDGE,
+    y: area.y + area.height - petSize.height - EDGE,
+    width: petSize.width,
+    height: petSize.height,
+  })
   saveBallPosition()
   if (panelOpen) positionPanel(panelHeight)
   else if (bubbleHeight > 0) showBubbleWindow()
@@ -572,20 +583,23 @@ ipcMain.on('companion:drag', (_event, phase) => {
   if (!ballWin) return
   if (phase === 'start') {
     dragging = { cursor: screen.getCursorScreenPoint(), origin: ballWin.getPosition() }
+    log(`drag start at ${JSON.stringify(dragging.origin)} size ${petSize.width}x${petSize.height}`)
   } else if (phase === 'move') {
     if (!dragging) return
     const point = screen.getCursorScreenPoint()
     const x = dragging.origin[0] + (point.x - dragging.cursor.x)
     const y = dragging.origin[1] + (point.y - dragging.cursor.y)
-    ballWin.setPosition(x, y)
+    // Always pass the size: setPosition alone lets Windows/Electron re-scale it.
+    ballWin.setBounds({ x, y, width: petSize.width, height: petSize.height })
     if (panelOpen) positionPanel(panelHeight)
     else if (bubbleHeight > 0) showBubbleWindow()
   } else {
     if (!dragging) return
     dragging = null
-    const bounds = ballWin.getBounds()
-    const clamped = clampToWorkArea(bounds.x, bounds.y, bounds.width, bounds.height)
-    ballWin.setPosition(clamped.x, clamped.y)
+    const position = ballWin.getPosition()
+    const clamped = clampToWorkArea(position[0], position[1], petSize.width, petSize.height)
+    ballWin.setBounds({ x: clamped.x, y: clamped.y, width: petSize.width, height: petSize.height })
+    log(`drag end bounds=${JSON.stringify(ballWin.getBounds())}`)
     saveBallPosition()
     if (panelOpen) positionPanel(panelHeight)
     else if (bubbleHeight > 0) showBubbleWindow()
@@ -596,15 +610,17 @@ ipcMain.on('companion:pet-size', (_event, size) => {
   if (!ballWin || !size) return
   const width = Math.max(48, Math.min(Math.round(size.width), 420))
   const height = Math.max(48, Math.min(Math.round(size.height), 420))
+  log(`pet-size request ${width}x${height} (current ${petSize.width}x${petSize.height})`)
+  const previous = petSize
+  petSize = { width, height }
   const bounds = ballWin.getBounds()
-  if (bounds.width === width && bounds.height === height) return
   ballWin.setBounds({
-    x: bounds.x + (bounds.width - width),
-    y: bounds.y + (bounds.height - height),
+    x: bounds.x + (previous.width - width),
+    y: bounds.y + (previous.height - height),
     width,
     height,
   })
-  log(`pet window ${width}x${height}`)
+  log(`pet window now ${JSON.stringify(ballWin.getBounds())}`)
   saveBallPosition()
   if (panelOpen) positionPanel(panelHeight)
   else if (bubbleHeight > 0) showBubbleWindow()

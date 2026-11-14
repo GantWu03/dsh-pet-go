@@ -6,8 +6,8 @@
     "license": "MIT"
   },
   "stage": { "width": 640, "height": 360 },
-  "viewport": { "x": 210, "y": 74, "width": 220, "height": 256 },
-  "preferred": { "width": 58, "height": 68 },
+  "viewport": { "x": 200, "y": 36, "width": 240, "height": 304 },
+  "preferred": { "width": 56, "height": 71 },
   "states": {
     "idle": { "clip": "idle.webm", "loop": true },
     "listening": { "clip": "listening.webm", "loop": false, "then": "idle" },
