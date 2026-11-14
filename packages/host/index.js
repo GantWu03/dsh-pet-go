@@ -45,6 +45,13 @@ const LOG_FILE = join(COMPANION_DIR, 'host.log')
 const RESTART_DELAYS = [1000, 2000, 4000, 8000, 16000, 30000]
 const WORKSPACE_TITLE = '桌面小助手'
 const SESSION_TITLE = '桌面小助手'
+/**
+ * Agent preset for the dedicated session. Without one the session gets the
+ * minimal tool set (working directory / worktree / workspace deps only), so the
+ * model cannot read a document or run a command when the screenshot is not
+ * enough. `standard` is the normal interactive preset.
+ */
+const SESSION_PRESET = process.env.DSH_PET_GO_PRESET || 'standard'
 
 export const name = 'companion'
 export const inject = ['attachments', 'agents']
@@ -100,6 +107,7 @@ class CompanionService {
         await this.attachSession(saved.sessionId)
       }
       await this.startServer()
+      void this.logPresets()
       this.startedAt = Date.now()
       this.log(`listening on 127.0.0.1:${this.port}`)
       this.spawnHelper()
@@ -346,6 +354,25 @@ class CompanionService {
     }
   }
 
+  /** Temporary probe: which agent presets exist, and what the companion session got. */
+  async logPresets () {
+    try {
+      const presets = this.ctx.get('agentPresets')
+      if (!presets) {
+        this.log('[presets] service absent')
+        return
+      }
+      const list = await presets.list()
+      this.log('[presets] ' + JSON.stringify(list.map((p) => p.id ?? p.name ?? p)))
+      if (this.sessionId) {
+        const agent = this.ctx.agents.get(this.sessionId)
+        this.log('[presets] live agent preset = ' + (agent ? String(presets.presetForSession(agent.session)) : 'no live agent'))
+      }
+    } catch (error) {
+      this.log(`[presets] failed: ${error?.message}`)
+    }
+  }
+
   async ensureWorkspace () {
     try {
       const registry = this.ctx.get('workspaceRegistry')
@@ -409,7 +436,7 @@ class CompanionService {
     const handle = await this.ctx.agents.create({
       sessionId,
       agentOptions: this.modelOptions(),
-      meta: { cwd: WORKSPACE_DIR },
+      meta: { cwd: WORKSPACE_DIR, agentPreset: SESSION_PRESET },
     })
     this.sessionId = handle.agent.id
     await this.writeState({ sessionId: this.sessionId, createdAt: Date.now() })
@@ -492,18 +519,23 @@ class CompanionService {
   onAssistantStream ({ agent, frame } = {}) {
     if (!this.sessionId || agent?.id !== this.sessionId) return
     if (frame?.type === 'start') {
+      this.answerBuffer = ''
       this.send({ type: 'answer', phase: 'start' })
       return
     }
     if (frame?.type === 'chunk') {
       const chunk = frame.chunk
-      if (chunk?.type === 'text-delta') this.send({ type: 'answer', phase: 'delta', text: chunk.text })
+      if (chunk?.type === 'text-delta') {
+        this.answerBuffer = (this.answerBuffer ?? '') + chunk.text
+        this.send({ type: 'answer', phase: 'delta', text: chunk.text })
+      }
       return
     }
     if (frame?.type === 'end') {
       const ok = frame.outcome?.kind === 'committed'
-      this.log(`answer end ok=${ok}`)
+      this.log(`answer end ok=${ok} text=${(this.answerBuffer ?? '').slice(0, 600).replace(/\s+/g, ' ')}`)
       this.send({ type: 'answer', phase: 'end', ok })
+      this.answerBuffer = ''
     }
   }
 

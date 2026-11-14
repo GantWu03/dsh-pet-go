@@ -84,7 +84,7 @@ const HOTKEY_PRESETS = [
   ['', '关闭热键'],
 ]
 
-const defaultConfig = () => ({ hotkey: 'Control+Shift+Space', openAtLogin: false, pet: 'circle' })
+const defaultConfig = () => ({ hotkey: 'Control+Shift+Space', openAtLogin: false, pet: 'circle', focusOnOpen: false })
 let config = defaultConfig()
 
 function loadConfig () {
@@ -264,11 +264,17 @@ function openPanel () {
   stopHoverWatch()
   positionPanel(panelHeight)
   panelWin.setIgnoreMouseEvents(false)
-  panelWin.show()
-  panelWin.focus()
+  // By default the composer does NOT take focus: the user keeps reading their
+  // own window, and clicking the textarea is what starts typing.
+  if (config.focusOnOpen) {
+    panelWin.show()
+    panelWin.focus()
+  } else {
+    panelWin.showInactive()
+  }
   panelWin.webContents.send('companion:open')
   ballWin?.webContents.send('companion:open')
-  log('panel opened')
+  log(`panel opened (focus=${Boolean(config.focusOnOpen)})`)
 }
 
 function closePanel () {
@@ -282,6 +288,8 @@ function closePanel () {
     panelWin?.hide()
     panelWin?.setIgnoreMouseEvents(true, { forward: true })
   }
+  // Hand the caret back to whatever the user was doing.
+  if (config.focusOnOpen) panelWin?.blur()
   log('panel closed')
 }
 
@@ -322,6 +330,10 @@ function startHoverWatch () {
     if (inside !== lastHover) {
       lastHover = inside
       panelWin.webContents.send('companion:hover', inside)
+      // Let the user scroll a long answer: while the pointer is on the bubble
+      // the window accepts mouse input, and it goes back to click-through as
+      // soon as the pointer leaves.
+      if (!panelOpen) panelWin.setIgnoreMouseEvents(!inside, { forward: true })
     }
   }, 250)
 }
@@ -545,6 +557,12 @@ function buildPetMenu () {
         saveConfig({ openAtLogin: item.checked })
         applyLoginItem()
       },
+    },
+    {
+      label: '打开时自动聚焦',
+      type: 'checkbox',
+      checked: Boolean(config.focusOnOpen),
+      click: (item) => saveConfig({ focusOnOpen: item.checked }),
     },
     { label: '复位位置', click: resetBallPosition },
     { type: 'separator' },
