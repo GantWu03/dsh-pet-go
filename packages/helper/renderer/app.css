@@ -162,7 +162,12 @@ body.panel-page {
   padding: 4px 6px 8px;
   user-select: text;
   -webkit-user-select: text;
+  /* The textarea grows with its content; a scrollbar in an otherwise empty
+     composer looks like a broken frame, so keep it scrollable but invisible. */
+  overflow-y: auto;
+  scrollbar-width: none;
 }
+#input::-webkit-scrollbar { width: 0; height: 0; }
 #input::placeholder { color: var(--muted); }
 
 .row {

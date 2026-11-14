@@ -433,10 +433,25 @@ class CompanionService {
   async createSession () {
     await mkdir(WORKSPACE_DIR, { recursive: true })
     const sessionId = `session-${randomUUID()}`
+    const presets = this.ctx.get('agentPresets')
     const handle = await this.ctx.agents.create({
       sessionId,
       agentOptions: this.modelOptions(),
       meta: { cwd: WORKSPACE_DIR, agentPreset: SESSION_PRESET },
+      // `meta.agentPreset` only records the label in the session header; the
+      // actual capability composition is mounted here, from the agent's own
+      // setup context. Without this the session gets the plugin-context tool
+      // set (working directory / worktree / deps) instead of a real preset.
+      setup: presets
+        ? async (agentCtx) => {
+            try {
+              const mounted = await presets.mount(agentCtx, SESSION_PRESET)
+              this.log(`preset mounted: ${mounted.id}`)
+            } catch (error) {
+              this.log(`preset mount failed: ${error?.message}`)
+            }
+          }
+        : undefined,
     })
     this.sessionId = handle.agent.id
     await this.writeState({ sessionId: this.sessionId, createdAt: Date.now() })
@@ -493,6 +508,8 @@ class CompanionService {
     /** @type {object[]} */
     const blocks = []
     if (text) blocks.push(textBlock(text))
+    const hint = this.contextHint(frame.context)
+    if (hint) blocks.push(textBlock(hint))
     if (wantsImage) {
       const bytes = Buffer.from(String(frame.image.base64), 'base64')
       let ref
@@ -512,6 +529,27 @@ class CompanionService {
     agent.followup(message)
     this.log(`submitted ${message.id} (${blocks.length} blocks, ${wantsImage ? 'with image' : 'text only'})`)
     this.send({ type: 'result', requestId: frame.requestId, ok: true, messageId: message.id, sessionId: agent.id })
+  }
+
+  /**
+   * Turn the helper's foreground probe into one labelled context block. The
+   * dedicated session runs the `standard` preset, so it can open the file
+   * itself when the screenshot is not enough; all it lacks is knowing which
+   * file is in front.
+   * @param {{app?: string, title?: string, docPath?: string, page?: number} | undefined} context
+   * @returns {string | null}
+   */
+  contextHint (context) {
+    if (!context?.app) return null
+    const lines = [
+      '[后台信息 · 不是用户输入]',
+      `用户当前前台窗口：${context.app}${context.title ? ` — ${context.title}` : ''}`,
+    ]
+    if (context.docPath) {
+      lines.push(`该文档的本地路径：${context.docPath}${context.page ? `（用户正看到第 ${context.page} 页）` : ''}`)
+    }
+    lines.push('截图只是当前视口。如果回答需要更多上下文，可以自己用工具读取上面这个文件，不要因此反问用户。')
+    return lines.join('\n')
   }
 
   // -------------------------------------------------------------------- relay
