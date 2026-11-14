@@ -1,4 +1,4 @@
 - insert:
-    - id: dsh-companion
-      name: '@dsh-companion/host'
+    - id: dsh-pet-go
+      name: '@dsh-pet-go/host'
       config: {}
