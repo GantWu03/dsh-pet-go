@@ -32,7 +32,9 @@
 
 两种装法，任选一种。
 
-**从 Releases 下载（推荐）**：到 [Releases](https://github.com/GantWu03/dsh-pet-go/releases) 下载 `dsh-pet-go-<version>.zip`，解压得到含 `package.json`、`lib/`、`helper/` 的目录；打开 DSH 的**插件**页 →「添加插件」→ 选这个目录。装完浮窗出现在屏幕右下角；重启 DSH 后仍在。
+**从 Releases 下载（推荐）**：到 [Releases](https://github.com/GantWu03/dsh-pet-go/releases) 下载 `dsh-pet-go-<version>.zip`，解压得到含 `package.json`、`lib/`、`helper/` 的目录；打开 DSH 的**插件**页 →「添加插件」→ **选这个目录**（粘贴绝对路径）。装完浮窗出现在屏幕右下角；重启 DSH 后仍在。
+
+> 目前**没有发布到 npm**，所以「添加插件」里直接输入 `dsh-pet-go` 会提示"未找到相关插件"——那个输入框解析的是 npm 包名 / GitHub 仓库 / 本地路径三种形式，请走本地路径这一种。
 
 **从源码**：
 
