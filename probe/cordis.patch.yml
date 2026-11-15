@@ -1,4 +1,0 @@
-- insert:
-    - id: companion-probe
-      name: '@local/dsh-companion-probe'
-      config: {}

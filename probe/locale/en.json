@@ -1,6 +1,0 @@
-{
-  "meta": {
-    "title": "Companion probe",
-    "description": "One-shot diagnostic probe for the desktop companion plugin. Sends one real screenshot as a user message and records what the harness supports."
-  }
-}
