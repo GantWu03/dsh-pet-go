@@ -130,7 +130,13 @@ async function boot (): Promise<void> {
         windows.showBall()
         windows.openPanel()
       },
-      togglePanel: () => windows.togglePanel(),
+      // Every way of summoning the companion also restores a hidden pet: the
+      // hotkey and a second launch used to open the composer while the pet
+      // stayed hidden, leaving the user with no visible way back.
+      togglePanel: () => {
+        windows.showBall()
+        windows.togglePanel()
+      },
       setPet: (pet) => {
         updateSettings({ pet })
         log(`pet switched to ${pet}`)
@@ -215,6 +221,7 @@ async function boot (): Promise<void> {
 
   app.on('second-instance', () => {
     log('second instance launched -> opening panel')
+    windows.showBall()
     windows.openPanel()
   })
 

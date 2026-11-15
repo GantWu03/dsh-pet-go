@@ -310,7 +310,9 @@ export function createWindows (deps: WindowsDeps): CompanionWindows {
 
     showBall (): void {
       if (!ballWin) return
+      const wasHidden = !ballWin.isVisible()
       ballWin.showInactive()
+      if (wasHidden) log('ball restored')
       relayout()
     },
 
@@ -396,6 +398,7 @@ export function createWindows (deps: WindowsDeps): CompanionWindows {
     hideBubble,
 
     hideAll (): void {
+      log('pet hidden (tray icon or hotkey brings it back)')
       for (const win of [panelWin, ballWin]) {
         try {
           win?.hide()

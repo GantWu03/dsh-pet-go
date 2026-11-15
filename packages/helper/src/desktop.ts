@@ -98,7 +98,8 @@ export function createDesktop (deps: DesktopDeps): Desktop {
     { label: '复位位置', click: () => actions.resetPosition() },
     { type: 'separator' },
     { label: '打开输入条', click: () => actions.openPanel() },
-    { label: '隐藏浮窗', click: () => actions.hidePet() },
+    // Saying how to undo it here is the only place the user looks before hiding it.
+    { label: '隐藏浮窗（托盘或热键唤回）', click: () => actions.hidePet() },
     { label: '退出', click: () => actions.quit() },
   ])
 
