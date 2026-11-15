@@ -27,7 +27,7 @@ import {
 import net from 'node:net'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 
 import { PROTOCOL_VERSION, CAPTURE_MODE, encodeFrame, createFrameDecoder } from '../shared/src/protocol.js'
 import { collectEnvironment } from './awareness/env.js'
@@ -77,6 +77,42 @@ let welcomeFrame = null
 let petSize = { width: BALL, height: BALL }
 /** Machine facts, collected once per helper launch and shipped in the hello. */
 let environment = null
+let environmentAt = 0
+const ENV_TTL_MS = 7 * 24 * 60 * 60 * 1000
+const ENV_CHECK_MS = 60 * 60 * 1000
+
+/** Facts are stale when old, or when a binary we recorded has disappeared. */
+function environmentIsStale () {
+  if (!environment) return true
+  if (Date.now() - environmentAt > ENV_TTL_MS) return true
+  if (environment.python && !existsSync(environment.python)) return true
+  if (environment.node && !existsSync(environment.node)) return true
+  return false
+}
+
+function refreshEnvironment (notify) {
+  try {
+    const display = screen.getPrimaryDisplay()
+    const scale = display.scaleFactor || 1
+    environment = collectEnvironment({
+      dshHome: DSH_HOME,
+      // Physical pixels: the DIP size confuses the model about screen size.
+      display: {
+        width: Math.round(display.size.width * scale),
+        height: Math.round(display.size.height * scale),
+        scale,
+      },
+    })
+    environmentAt = Date.now()
+    log(`env collected: python=${environment.python ?? '-'} node=${environment.node ?? '-'}`)
+    if (notify && connected && socket && !socket.destroyed) {
+      socket.write(encodeFrame({ v: PROTOCOL_VERSION, type: 'env', env: environment }))
+      log('env pushed to host (ttl refresh)')
+    }
+  } catch (error) {
+    log(`env failed: ${error?.message}`)
+  }
+}
 
 const stateFile = () => join(app.getPath('userData'), 'window-state.json')
 const configFile = () => join(app.getPath('userData'), 'config.json')
@@ -704,16 +740,7 @@ if (!gotSingleInstanceLock) {
 
   app.whenReady().then(() => {
     loadConfig()
-    try {
-      const display = screen.getPrimaryDisplay()
-      environment = collectEnvironment({
-        dshHome: DSH_HOME,
-        display: { width: display.size.width, height: display.size.height, scaleFactor: display.scaleFactor },
-      })
-      log(`env: python=${environment.python ?? '-'} node=${environment.node ?? '-'} shell=${environment.shell}`)
-    } catch (error) {
-      log(`env failed: ${error?.message}`)
-    }
+    refreshEnvironment(false)
     log(`ready electron=${process.versions.electron} port=${PORT} hotkey=${config.hotkey || 'off'}`)
     try {
       const display = screen.getPrimaryDisplay()
@@ -725,6 +752,11 @@ if (!gotSingleInstanceLock) {
     applyHotkey()
     applyLoginItem()
     connectHost()
+    // Long-running instance: refresh when the snapshot ages out or a recorded
+    // binary disappears, without waiting for the next DSH restart.
+    setInterval(() => {
+      if (environmentIsStale()) refreshEnvironment(true)
+    }, ENV_CHECK_MS)
   })
 }
 
