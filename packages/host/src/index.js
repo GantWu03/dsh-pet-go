@@ -28,13 +28,35 @@ import {
   CAPTURE_MODE,
   encodeFrame,
   createFrameDecoder,
-} from '../shared/src/protocol.js'
-import { ErrorCode, describeError } from '../shared/src/errors.js'
-import { createUserMessage, textBlock, imageBlock } from '../shared/src/message.js'
+} from '@dsh-pet-go/shared/protocol'
+import { ErrorCode, describeError } from '@dsh-pet-go/shared/errors'
+import { createUserMessage, textBlock, imageBlock } from '@dsh-pet-go/shared/message'
 
+/**
+ * This module is the bundled plugin entry, so it lives at
+ * `packages/host/lib/index.js` and the helper is its sibling workspace package.
+ * The pair is always built together (scripts/build.mjs) and installed from the
+ * same checkout; the candidates below cover the layouts we actually ship and
+ * `DSH_PET_GO_HELPER` overrides them all for debugging.
+ */
 const HERE = dirname(fileURLToPath(import.meta.url))
-const REPO_ROOT = join(HERE, '..', '..')
-const HELPER_DIR = join(REPO_ROOT, 'packages', 'helper')
+const REPO_ROOT = join(HERE, '..', '..', '..')
+const HELPER_DIST = join(REPO_ROOT, 'packages', 'helper', 'dist')
+
+function resolveHelperDir () {
+  const candidates = [
+    process.env.DSH_PET_GO_HELPER,
+    HELPER_DIST,
+    // An older install layout: the plugin entry sat in packages/host itself.
+    join(HERE, '..', 'helper'),
+  ].filter(Boolean)
+  for (const candidate of candidates) {
+    try {
+      if (existsSync(join(candidate, 'main.js')) && existsSync(join(candidate, 'package.json'))) return candidate
+    } catch {}
+  }
+  return null
+}
 
 const DSH_HOME = process.env.DSH_HOME || join(homedir(), '.dsh')
 const COMPANION_DIR = join(DSH_HOME, 'companion')
@@ -61,7 +83,7 @@ const SESSION_PRESET = process.env.DSH_PET_GO_PRESET || 'standard'
  * the user is reading) must never live here — they change mid-session and the
  * model can observe them itself.
  */
-function agentsMd (env) {
+export function agentsMd (env) {
   const facts = [
     ['系统', env.os ? `${env.os} · ${env.platform}` : env.platform],
     ['shell', env.pwsh7 ? `${env.shell} 和 PowerShell 7（${env.pwsh7}）` : `${env.shell}（没有 pwsh 7）`],
@@ -242,6 +264,13 @@ class CompanionService {
         return
       }
       void this.onFrame(frame)
+    }, {
+      // An oversized or runaway frame is a connection-level problem: the stream
+      // is already out of sync, so drop it and let the helper reconnect.
+      onError: (error) => {
+        this.log(`frame rejected: ${error.code}`)
+        drop()
+      },
     })
 
     socket.on('data', (chunk) => decode(chunk))
@@ -313,7 +342,13 @@ class CompanionService {
       this.log('helper electron binary not found; set DSH_COMPANION_ELECTRON')
       return
     }
+    const helperDir = resolveHelperDir()
+    if (!helperDir) {
+      this.log(`helper app directory not found (looked for ${HELPER_DIST}); run \`pnpm build\``)
+      return
+    }
     this.log(`using electron: ${electron}`)
+    this.log(`using helper: ${helperDir}`)
     // Deliberately a whitelist, not a copy of process.env: DSH runs inside
     // Electron, and letting ELECTRON_RUN_AS_NODE (or any NODE_OPTIONS) reach the
     // helper turns it into a plain Node process with no BrowserWindow at all.
@@ -331,7 +366,7 @@ class CompanionService {
     }
     delete env.ELECTRON_RUN_AS_NODE
     try {
-      const child = spawn(electron, [HELPER_DIR], { stdio: 'ignore', env, windowsHide: true })
+      const child = spawn(electron, [helperDir], { stdio: 'ignore', env, windowsHide: true })
       this.helper = child
       this.log(`helper spawned pid=${child.pid}`)
       child.on('exit', (code, signal) => {

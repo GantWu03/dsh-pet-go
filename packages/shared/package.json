@@ -1,0 +1,15 @@
+{
+  "name": "@dsh-pet-go/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Cross-process contracts for dsh-pet-go: wire frames, error codes and message construction.",
+  "exports": {
+    "./protocol": "./src/protocol.js",
+    "./errors": "./src/errors.js",
+    "./message": "./src/message.js"
+  },
+  "files": [
+    "src"
+  ]
+}

@@ -29,7 +29,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 
-import { PROTOCOL_VERSION, CAPTURE_MODE, encodeFrame, createFrameDecoder } from '../shared/src/protocol.js'
+import { PROTOCOL_VERSION, CAPTURE_MODE, encodeFrame, createFrameDecoder } from '@dsh-pet-go/shared/protocol'
 import { collectEnvironment } from './awareness/env.js'
 import os from 'node:os'
 
@@ -447,6 +447,13 @@ function connectHost () {
     }
     panelWin?.webContents.send('companion:host', frame)
     ballWin?.webContents.send('companion:host', frame)
+  }, {
+    // The channel is out of sync once a frame is refused; reconnecting is the
+    // only safe recovery, and the reconnect logic already lives in `close`.
+    onError: (error) => {
+      log(`frame rejected: ${error.code}`)
+      socketInstance.destroy()
+    },
   })
 
   socketInstance.on('connect', () => {

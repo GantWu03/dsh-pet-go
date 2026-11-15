@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Desktop companion for DeepSeek Harness: one floating ball, one screenshot question, one answer bubble.",
   "exports": {
-    ".": "./index.js",
+    ".": "./lib/index.js",
     "./locale/*.json": "./locale/*.json"
   },
   "dsh": {
@@ -14,7 +14,7 @@
     }
   },
   "files": [
-    "index.js",
+    "lib/index.js",
     "cordis.patch.yml",
     "locale/*.json"
   ]
