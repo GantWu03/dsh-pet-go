@@ -95,6 +95,10 @@ test('the hello carries the token and the first request resolves by request id',
   const { client, states } = makeClient({ port: server.port, token: 'secret', platform: 'test/x64' })
   client.start()
   await waitFor(() => states.includes('connected'), 'connect')
+  // `connected` means "the socket opened"; the hello is only guaranteed to have
+  // arrived once the server decoded it. Waiting on the server side is what makes
+  // this test deterministic.
+  await waitFor(() => server.received.length > 0, 'the hello to arrive')
   assert.deepEqual(server.received[0], {
     v: 1,
     type: 'hello',
@@ -108,7 +112,9 @@ test('the hello carries the token and the first request resolves by request id',
   assert.equal(result.ok, true)
   assert.equal(result.messageId, 'msg-1')
   assert.equal(result.sessionId, 'session-1')
-  assert.ok(server.received[1].requestId, 'the request carries an id')
+  assert.ok(server.received[1].requestId === undefined || typeof server.received[1].requestId === 'string')
+  assert.equal(server.received[1].type, 'submit')
+  assert.equal(typeof server.received[1].requestId, 'string', 'the request carries an id')
 
   client.stop()
   await server.close()
@@ -186,9 +192,9 @@ test('the client reconnects after a drop', async () => {
 
 test('stop() ends reconnection and fails whatever was pending', async () => {
   const server = await startServer(() => {})
-  const { client, states } = makeClient({ port: server.port, token: 't', platform: 'test' })
+  const { client } = makeClient({ port: server.port, token: 't', platform: 'test' })
   client.start()
-  await waitFor(() => states.includes('connected'), 'connect')
+  await waitFor(() => server.received.some((frame) => frame.type === 'hello'), 'the hello')
   const pending = client.request({ type: 'ping' }, 5000)
   client.stop()
   const result = await pending

@@ -1,11 +1,14 @@
 /**
  * Loopback TCP transport for the host plugin.
  *
- * Owns the listener, the handshake (token, version), the single current
- * connection and every write to it. It knows nothing about sessions or
- * submissions: it validates direction and shape, then hands frames to the
- * companion. A response for a connection that has already been replaced is
- * dropped here, because "the current client" is transport state.
+ * Owns the listener, the handshake (token, version), the current connection and
+ * every write to it. It knows nothing about sessions or submissions: it validates
+ * direction and shape, then hands frames to the companion.
+ *
+ * Two rules live here because they are connection state:
+ *   - a reply goes to the connection that asked, never to "whoever is current";
+ *   - a response whose connection has been replaced is dropped, and the new
+ *     connection gets only its own welcome.
  */
 import net from 'node:net'
 
@@ -20,19 +23,30 @@ import { ErrorCode, describeError } from '@dsh-pet-go/shared/errors'
 
 import type { Log } from '../types.ts'
 
+/** A reply channel bound to one socket. */
+export interface Connection {
+  /**
+   * Send to this connection only. Silently ignored once the socket is gone, so a
+   * request that finishes after a reconnect cannot answer the new client.
+   */
+  send (frame: HostFramePayload): void
+  close (): void
+}
+
 export interface TransportOptions {
   token: string
   log: Log
   /** A client completed the handshake with a valid token and version. */
-  onClient: (hello: HelloFrame) => Promise<void> | void
-  /** A valid frame from the current client. */
-  onFrame: (frame: ClientFrame) => Promise<void> | void
-  onDisconnect: () => void
+  onClient: (hello: HelloFrame, connection: Connection) => Promise<void> | void
+  /** A valid frame from a connected client. */
+  onFrame: (frame: ClientFrame, connection: Connection) => Promise<void> | void
+  onDisconnect: (connection: Connection) => void
 }
 
 export interface Transport {
   listen (): Promise<number>
   close (): void
+  /** Broadcast to the current connection (relay frames, restart notices). */
   send (frame: HostFramePayload): void
   readonly port: number
   readonly connected: boolean
@@ -43,8 +57,10 @@ export function createTransport (options: TransportOptions): Transport {
   let server: net.Server | null = null
   let client: net.Socket | null = null
   let port = 0
+  let closed = false
 
-  const reply = (socket: net.Socket, frame: HostFramePayload): void => {
+  const writeTo = (socket: net.Socket, frame: HostFramePayload): void => {
+    if (socket.destroyed) return
     try {
       socket.write(encodeFrame({ v: PROTOCOL_VERSION, ...frame }))
     } catch (error) {
@@ -63,14 +79,19 @@ export function createTransport (options: TransportOptions): Transport {
       } catch {}
     }
 
+    const connection: Connection = {
+      send: (frame) => writeTo(socket, frame),
+      close: drop,
+    }
+
     const decode = createFrameDecoder((raw) => {
       const parsed = parseClientFrame(raw)
       if (!parsed.ok) {
         log(`frame rejected: ${parsed.reason}`)
         // Before the handshake a bad frame means "not our client"; afterwards it
-        // is an ordinary bad request answered on the existing channel.
+        // is an ordinary bad request answered on the same connection.
         if (!greeted) drop()
-        else reply(socket, { type: 'result', ok: false, ...describeError(ErrorCode.BAD_REQUEST, parsed.reason) })
+        else connection.send({ type: 'result', ok: false, ...describeError(ErrorCode.BAD_REQUEST, parsed.reason) })
         return
       }
       const frame = parsed.frame
@@ -81,7 +102,7 @@ export function createTransport (options: TransportOptions): Transport {
           return
         }
         if (frame.v !== PROTOCOL_VERSION) {
-          reply(socket, { type: 'result', ok: false, ...describeError(ErrorCode.PROTOCOL_MISMATCH) })
+          connection.send({ type: 'result', ok: false, ...describeError(ErrorCode.PROTOCOL_MISMATCH) })
           drop()
           return
         }
@@ -90,10 +111,14 @@ export function createTransport (options: TransportOptions): Transport {
           try { client.destroy() } catch {}
         }
         client = socket
-        void options.onClient(frame)
+        Promise.resolve(options.onClient(frame, connection)).catch((error) => {
+          log(`client setup failed: ${(error as Error)?.message ?? error}`)
+        })
         return
       }
-      void options.onFrame(frame)
+      Promise.resolve(options.onFrame(frame, connection)).catch((error) => {
+        log(`frame dispatch failed: ${(error as Error)?.message ?? error}`)
+      })
     }, {
       // An oversized or runaway frame is a connection-level problem: the stream
       // is already out of sync, so drop it and let the helper reconnect.
@@ -108,7 +133,7 @@ export function createTransport (options: TransportOptions): Transport {
     socket.on('close', () => {
       if (client === socket) {
         client = null
-        options.onDisconnect()
+        options.onDisconnect(connection)
       }
     })
   }
@@ -121,14 +146,22 @@ export function createTransport (options: TransportOptions): Transport {
         listener.listen(0, '127.0.0.1', () => {
           listener.removeListener('error', reject)
           listener.on('error', (error: Error) => log(`server error: ${error?.message}`))
-          server = listener
           port = (listener.address() as net.AddressInfo).port
+          if (closed) {
+            // close() ran while we were binding: the service is already gone, so
+            // do not leave a listening socket behind.
+            try { listener.close() } catch {}
+            resolve(port)
+            return
+          }
+          server = listener
           resolve(port)
         })
       })
     },
 
     close (): void {
+      closed = true
       if (client) {
         try { client.destroy() } catch {}
         client = null
@@ -140,8 +173,8 @@ export function createTransport (options: TransportOptions): Transport {
     },
 
     send (frame: HostFramePayload): void {
-      if (!client || client.destroyed) return
-      reply(client, frame)
+      if (!client) return
+      writeTo(client, frame)
     },
 
     get port (): number {

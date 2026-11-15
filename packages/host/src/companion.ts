@@ -16,17 +16,17 @@ import { ErrorCode, describeError } from '@dsh-pet-go/shared/errors'
 import type { ClientFrame, EnvironmentFacts, HelloFrame } from '@dsh-pet-go/shared/protocol'
 import { PROTOCOL_VERSION } from '@dsh-pet-go/shared/protocol'
 
-import type { DshAdapter, LiveAgent, WorkspacePort } from './adapters/dsh.ts'
+import type { DshAdapter, WorkspacePort } from './adapters/dsh.ts'
 import { writeInstructions } from './instructions.ts'
 import { createRelay } from './relay.ts'
 import { createSupervisor, resolveElectron, resolveHelperDir } from './runtime/supervisor.ts'
 import type { Supervisor } from './runtime/supervisor.ts'
-import { createSessionManager } from './session.ts'
+import { createSessionManager, SessionUnavailableError } from './session.ts'
 import type { SessionManager } from './session.ts'
 import { SubmitError, createSubmitter } from './submit.ts'
 import type { Submitter } from './submit.ts'
 import { createTransport } from './transport/server.ts'
-import type { Transport } from './transport/server.ts'
+import type { Connection, Transport } from './transport/server.ts'
 import type { CompanionPaths, Log } from './types.ts'
 
 const WORKSPACE_TITLE = '桌面小助手'
@@ -75,7 +75,9 @@ export class CompanionService {
     const log = this.#log
     try {
       await mkdir(paths.workspaceDir, { recursive: true })
+      if (this.#disposed) return
       await workspace.ensure(paths.workspaceDir, WORKSPACE_TITLE)
+      if (this.#disposed) return
 
       const session = createSessionManager({
         log,
@@ -89,17 +91,33 @@ export class CompanionService {
       this.#session = session
       this.#submitter = createSubmitter({ log, sessions: adapter.sessions })
       await session.restore()
+      if (this.#disposed) {
+        // Unloaded while restoring: nothing below should exist.
+        await session.dispose()
+        this.#session = null
+        this.#submitter = null
+        return
+      }
 
       const token = this.#options.token ?? randomBytes(24).toString('hex')
       const transport = createTransport({
         token,
         log,
-        onClient: (hello) => this.#onClient(hello),
-        onFrame: (frame) => this.#onFrame(frame),
+        onClient: (hello, connection) => this.#onClient(hello, connection),
+        onFrame: (frame, connection) => this.#onFrame(frame, connection),
         onDisconnect: () => {},
       })
       this.#transport = transport
       const port = await transport.listen()
+      if (this.#disposed) {
+        // Unloaded while binding: the listener may have been created after close().
+        transport.close()
+        this.#transport = null
+        await session.dispose()
+        this.#session = null
+        this.#submitter = null
+        return
+      }
 
       const electron = resolveElectron(paths.dshHome)
       const helperDir = resolveHelperDir(this.#options.repoRoot)
@@ -115,6 +133,7 @@ export class CompanionService {
           transport.send({ type: 'state', state: 'idle', detail: `浮窗正在重启（第 ${attempt} 次）` })
         },
       })
+      this.#disposeSupervisor = () => supervisor.stop()
 
       const relay = createRelay({
         log,
@@ -125,10 +144,22 @@ export class CompanionService {
       })
       relay.start()
       this.#disposeRelay = () => relay.stop()
-
-      this.#disposeSupervisor = () => supervisor.stop()
+      if (this.#disposed) {
+        relay.stop()
+        this.#disposeRelay = null
+        supervisor.stop()
+        this.#disposeSupervisor = null
+        transport.close()
+        this.#transport = null
+        await session.dispose()
+        this.#session = null
+        this.#submitter = null
+        return
+      }
 
       log(`listening on 127.0.0.1:${port}`)
+      // The last thing that can outlive the plugin is the child process.
+      if (this.#disposed) return
       supervisor.start()
     } catch (error) {
       log(`start failed: ${(error as Error)?.stack ?? error}`)
@@ -150,7 +181,7 @@ export class CompanionService {
   }
 
   /** Handshake completed: remember the facts, refresh AGENTS.md, greet. */
-  async #onClient (hello: HelloFrame): Promise<void> {
+  async #onClient (hello: HelloFrame, connection: Connection): Promise<void> {
     this.#environment = hello.env ?? null
     this.#log(`helper connected (${hello.platform ?? 'unknown'})`)
     if (this.#environment) {
@@ -161,13 +192,15 @@ export class CompanionService {
         log: this.#log,
       })
     }
-    await this.#greet()
+    // Answer the connection that shook hands, even if another one replaced it
+    // while the instructions were being written.
+    this.#greet(connection)
   }
 
-  async #greet (): Promise<void> {
+  #greet (connection: Connection): void {
     const session = this.#session
     const sessionId = session?.sessionId ?? null
-    this.#transport?.send({
+    connection.send({
       type: 'welcome',
       sessionId,
       model: this.#currentModel(),
@@ -192,11 +225,11 @@ export class CompanionService {
     }
   }
 
-  async #onFrame (frame: ClientFrame): Promise<void> {
+  async #onFrame (frame: ClientFrame, connection: Connection): Promise<void> {
     try {
       switch (frame.type) {
         case 'ping':
-          this.#transport?.send({ type: 'result', requestId: frame.requestId, ok: true })
+          connection.send({ type: 'result', requestId: frame.requestId, ok: true })
           return
         case 'env':
           // Helper-side TTL refresh: facts aged out or a binary disappeared.
@@ -211,14 +244,17 @@ export class CompanionService {
           return
         case 'new-session': {
           const agent = await this.#requireSession().createNew()
-          this.#transport?.send({ type: 'session', sessionId: agent.id })
-          this.#transport?.send({ type: 'result', requestId: frame.requestId, ok: true })
+          // The "session" notice belongs to whoever asked; a reconnect gets its
+          // own picture from the welcome instead.
+          connection.send({ type: 'session', sessionId: agent.id })
+          connection.send({ type: 'result', requestId: frame.requestId, ok: true })
           return
         }
         case 'submit': {
-          const agent = await this.#agentForSubmit()
-          const result = await this.#requireSubmitter().run(frame, agent)
-          this.#transport?.send({
+          const result = await this.#requireSession().usingAgent(
+            async (agent) => await this.#requireSubmitter().run(frame, agent),
+          )
+          connection.send({
             type: 'result',
             requestId: frame.requestId,
             ok: true,
@@ -229,28 +265,22 @@ export class CompanionService {
         }
         case 'hello':
           // A second hello on an established connection is a protocol mistake.
-          this.#transport?.send({ type: 'result', ok: false, ...describeError(ErrorCode.BAD_REQUEST, 'hello already received') })
+          connection.send({ type: 'result', ok: false, ...describeError(ErrorCode.BAD_REQUEST, 'hello already received') })
           return
       }
     } catch (error) {
       const payload = error instanceof SubmitError
         ? describeError(error.code, error.detail)
-        : describeError(ErrorCode.INTERNAL, (error as Error)?.message)
+        : error instanceof SessionUnavailableError
+          ? describeError(ErrorCode.AGENT_UNAVAILABLE, (error as Error)?.message)
+          : describeError(ErrorCode.INTERNAL, (error as Error)?.message)
       this.#log(`request failed (${frame.type}): ${(error as Error)?.stack ?? error}`)
-      this.#transport?.send({
+      connection.send({
         type: 'result',
         requestId: 'requestId' in frame ? frame.requestId : undefined,
         ok: false,
         ...payload,
       })
-    }
-  }
-
-  async #agentForSubmit (): Promise<LiveAgent> {
-    try {
-      return await this.#requireSession().current()
-    } catch (error) {
-      throw new SubmitError(ErrorCode.AGENT_UNAVAILABLE, (error as Error)?.message)
     }
   }
 

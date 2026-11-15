@@ -25,7 +25,9 @@ function createFakeDsh () {
   const attached = []
   const images = []
   const listeners = new Set()
-  const state = { createCount: 0, failCreate: false, failImage: false }
+  const state = { createCount: 0, failCreate: false, failImage: false, imageGate: null, imagePending: 0 }
+  /** Ordered record of what happened, so ordering between sessions is assertable. */
+  const timeline = []
 
   const makeHandle = (id) => {
     const agent = {
@@ -35,7 +37,10 @@ function createFakeDsh () {
       appended: [],
       session: { append: (type, payload) => agent.appended.push({ type, payload }) },
       followup: () => {},
-      dispose: async () => { agents.delete(id) },
+      dispose: async () => {
+        agents.delete(id)
+        timeline.push({ kind: 'dispose', sessionId: id })
+      },
     }
     agents.set(id, agent)
     return { agent, dispose: agent.dispose }
@@ -46,6 +51,7 @@ function createFakeDsh () {
     attached,
     images,
     state,
+    timeline,
     sessions: {
       currentModel: () => ({ provider: 'fake-provider', model: 'fake-model' }),
       resume: async (id) => makeHandle(id),
@@ -59,8 +65,14 @@ function createFakeDsh () {
       grantFullAccess: (agent) => { agent.granted = true },
       attachToWorkspace: async (id) => { attached.push(id) },
       rename: async () => {},
-      followup: (agent, message) => { submitted.push({ agentId: agent.id, message }) },
+      followup: (agent, message) => {
+        submitted.push({ agentId: agent.id, message })
+        timeline.push({ kind: 'followup', sessionId: agent.id })
+      },
       saveImage: async (input) => {
+        state.imagePending += 1
+        if (state.imageGate) await state.imageGate
+        state.imagePending -= 1
         if (state.failImage) throw new Error('image too big')
         images.push(input)
         return { id: `att-${images.length}` }
@@ -88,13 +100,16 @@ function createClient (port) {
   socket.on('error', () => {})
   let closed = false
   socket.on('close', () => { closed = true })
+  /** Sends are queued before connect, but waiting makes ordering explicit. */
+  const ready = new Promise((resolve) => socket.once('connect', resolve))
 
   return {
     frames,
+    ready,
     send: (frame) => socket.write(encodeFrame({ v: 1, ...frame })),
     raw: (text) => socket.write(text),
     isClosed: () => closed,
-    async waitFor (predicate, label = 'frame', timeoutMs = 2000) {
+    async waitFor (predicate, label = 'frame', timeoutMs = 5000) {
       const started = Date.now()
       while (Date.now() - started < timeoutMs) {
         const found = frames.find(predicate)
@@ -107,7 +122,8 @@ function createClient (port) {
   }
 }
 
-async function startCompanion (options = {}) {
+/** Build a service on a fresh temp directory; nothing is started yet. */
+async function createCompanion (options = {}) {
   const root = await mkdtemp(join(tmpdir(), 'dsh-pet-integration-'))
   const fake = createFakeDsh()
   const lines = []
@@ -129,15 +145,19 @@ async function startCompanion (options = {}) {
     supervisor: { start: () => {}, stop: () => {}, resetBackoff: () => {} },
     ...options,
   })
-  await service.start()
-  const listening = lines.find((line) => line.startsWith('listening on 127.0.0.1:'))
+  return { service, fake, lines, root }
+}
+
+async function startCompanion (options = {}) {
+  const harness = await createCompanion(options)
+  await harness.service.start()
+  const listening = harness.lines.find((line) => line.startsWith('listening on 127.0.0.1:'))
   if (!listening) {
     // Never leave a listener behind when the service failed to come up.
-    service.dispose()
-    throw new Error(`service did not listen: ${lines.join(' / ')}`)
+    harness.service.dispose()
+    throw new Error(`service did not listen: ${harness.lines.join(' / ')}`)
   }
-  const port = Number(listening.split(':').pop())
-  return { service, fake, lines, port }
+  return { ...harness, port: Number(listening.split(':').pop()) }
 }
 
 /** Run against a live service; the service is always disposed afterwards. */
@@ -155,6 +175,7 @@ async function withClient (run, hello = {}) {
   return await withCompanion(async (harness) => {
     const client = createClient(harness.port)
     try {
+      await client.ready
       client.send({
         type: 'hello',
         token: TOKEN,
@@ -175,6 +196,7 @@ async function withRawClient (run) {
   return await withCompanion(async (harness) => {
     const client = createClient(harness.port)
     try {
+      await client.ready
       return await run({ ...harness, client })
     } finally {
       client.close()
@@ -443,4 +465,127 @@ test('a restored session is resumed instead of created again', async () => {
     client.close()
     second.dispose()
   }
+})
+
+/** Poll a condition with the same budget as `waitFor`. */
+async function waitUntil (predicate, label = 'condition', timeoutMs = 5000) {
+  const started = Date.now()
+  while (Date.now() - started < timeoutMs) {
+    if (predicate()) return
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
+  throw new Error(`timed out waiting for ${label}`)
+}
+
+test('unloading during startup leaves no listener and no helper', async () => {
+  let release
+  const gate = new Promise((resolve) => { release = resolve })
+  let ensureEntered = false
+  const supervisor = {
+    started: false,
+    start () { this.started = true },
+    stop () {},
+    resetBackoff () {},
+  }
+  const harness = await createCompanion({
+    workspace: {
+      ensure: async () => {
+        ensureEntered = true
+        await gate
+      },
+    },
+    supervisor,
+  })
+
+  const starting = harness.service.start()
+  await waitUntil(() => ensureEntered, 'startup to reach the workspace step')
+  harness.service.dispose()
+  release()
+  await starting
+
+  assert.equal(supervisor.started, false, 'the helper must not be started after dispose')
+  assert.equal(
+    harness.lines.some((line) => line.startsWith('listening on')),
+    false,
+    'no socket should be left listening',
+  )
+})
+
+test('a session switch waits for an attachment that is being saved', async () => {
+  await withClient(async ({ client, fake }) => {
+    await client.waitFor((frame) => frame.type === 'welcome', 'welcome')
+    const first = await submitText(client, 'req-1', '第一句')
+
+    let release
+    fake.state.imageGate = new Promise((resolve) => { release = resolve })
+    client.send({
+      type: 'submit',
+      requestId: 'req-img',
+      text: '看图',
+      capture: { mode: 'screen' },
+      image: { base64: Buffer.from('png').toString('base64'), mediaType: 'image/png' },
+    })
+    await waitUntil(() => fake.state.imagePending === 1, 'the attachment save to start')
+
+    // The switch arrives while the attachment is still being written: it must wait,
+    // otherwise it would release the session the submission is about to use.
+    client.send({ type: 'new-session', requestId: 'req-new' })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    assert.equal(
+      client.frames.some((frame) => frame.type === 'session'),
+      false,
+      'the switch must not finish before the submission is enqueued',
+    )
+
+    release()
+    const submitted = await client.waitFor((frame) => frame.type === 'result' && frame.requestId === 'req-img', 'image result')
+    await client.waitFor((frame) => frame.type === 'session', 'session frame')
+    await client.waitFor((frame) => frame.type === 'result' && frame.requestId === 'req-new', 'switch result')
+
+    assert.equal(submitted.sessionId, first.sessionId, 'the message went to the session it was assembled for')
+    const followupIndex = fake.timeline.findIndex((entry) => entry.kind === 'followup' && entry.sessionId === first.sessionId)
+    const disposeIndex = fake.timeline.findIndex((entry) => entry.kind === 'dispose' && entry.sessionId === first.sessionId)
+    assert.ok(followupIndex >= 0, 'the message was enqueued')
+    assert.ok(disposeIndex >= 0, 'the old session was released after the switch')
+    assert.ok(followupIndex < disposeIndex, 'the message must be enqueued before its session is released')
+  })
+})
+
+test('a reply stays on the connection that asked', async () => {
+  await withRawClient(async ({ client: first, port, fake }) => {
+    first.send({ type: 'hello', token: TOKEN, platform: 'test/x64', capabilities: { capture: true, hotkey: true, bubble: true }, env: null })
+    await first.waitFor((frame) => frame.type === 'welcome', 'first welcome')
+
+    let release
+    fake.state.imageGate = new Promise((resolve) => { release = resolve })
+    first.send({
+      type: 'submit',
+      requestId: 'req-old',
+      text: '看这个',
+      capture: { mode: 'screen' },
+      image: { base64: Buffer.from('png').toString('base64'), mediaType: 'image/png' },
+    })
+    await waitUntil(() => fake.state.imagePending === 1, 'the attachment save to start')
+
+    // The helper reconnects while the old request is still in flight.
+    const second = createClient(port)
+    try {
+      await second.ready
+      second.send({ type: 'hello', token: TOKEN, platform: 'test/x64', capabilities: { capture: true, hotkey: true, bubble: true }, env: null })
+      const welcome = await second.waitFor((frame) => frame.type === 'welcome', 'second welcome')
+      assert.equal(typeof welcome.protocol, 'number', 'the new connection gets its own welcome')
+
+      release()
+      await waitUntil(() => fake.submitted.length === 1, 'the message to be enqueued')
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      assert.deepEqual(
+        second.frames.filter((frame) => frame.type !== 'welcome'),
+        [],
+        'the replaced connection must not receive the old request answer',
+      )
+      assert.equal(fake.submitted.length, 1, 'the message itself is still delivered')
+    } finally {
+      second.close()
+    }
+  })
 })

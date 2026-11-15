@@ -29,11 +29,22 @@ export interface SessionManager {
   readonly sessionId: string | null
   /** Register the workspace and adopt the saved session id, if any. */
   restore (): Promise<void>
-  /** The agent to submit to: current, resumed, or freshly created. */
-  current (): Promise<LiveAgent>
+  /**
+   * Run one submission against the current agent: pick it, hand it over, and do
+   * not let a session switch interleave until the step returns.
+   */
+  usingAgent<T> (step: (agent: LiveAgent) => Promise<T>): Promise<T>
   /** Create a new session and switch to it. */
   createNew (): Promise<LiveAgent>
   dispose (): Promise<void>
+}
+
+/** The session could not be selected (create/resume failed). */
+export class SessionUnavailableError extends Error {
+  constructor (message: string) {
+    super(message)
+    this.name = 'SessionUnavailableError'
+  }
 }
 
 export function createSessionManager (options: SessionOptions): SessionManager {
@@ -108,6 +119,29 @@ export function createSessionManager (options: SessionOptions): SessionManager {
     return await adopt(created)
   }
 
+  /** Pick the session to submit to: live now, resumable, or a new one. */
+  const resolveCurrent = async (): Promise<LiveAgent> => {
+    if (sessionId) {
+      const live = sessions.liveAgent(sessionId)
+      if (live) return live
+      try {
+        return await resume(sessionId)
+      } catch (error) {
+        log(`resume failed: ${(error as Error)?.message}`)
+      }
+    }
+    const saved = await readSavedSessionId()
+    if (saved && saved !== sessionId) {
+      sessionId = saved
+      try {
+        return await resume(saved)
+      } catch (error) {
+        log(`resume failed: ${(error as Error)?.message}`)
+      }
+    }
+    return await create()
+  }
+
   return {
     get sessionId (): string | null {
       return sessionId
@@ -124,27 +158,20 @@ export function createSessionManager (options: SessionOptions): SessionManager {
       })
     },
 
-    async current (): Promise<LiveAgent> {
+    async usingAgent<T> (step: (agent: LiveAgent) => Promise<T>): Promise<T> {
+      // The whole step is serialised: session selection, attachment handling and
+      // the followup enqueue. A session switch cannot land between "we picked this
+      // agent" and "the message is in its queue", so the old handle cannot be
+      // released underneath a submission. Answer generation stays async, because
+      // it belongs to the agent, not to this step.
       return await serialize(async () => {
-        if (sessionId) {
-          const live = sessions.liveAgent(sessionId)
-          if (live) return live
-          try {
-            return await resume(sessionId)
-          } catch (error) {
-            log(`resume failed: ${(error as Error)?.message}`)
-          }
+        let agent: LiveAgent
+        try {
+          agent = await resolveCurrent()
+        } catch (error) {
+          throw new SessionUnavailableError((error as Error)?.message ?? 'session unavailable')
         }
-        const saved = await readSavedSessionId()
-        if (saved && saved !== sessionId) {
-          sessionId = saved
-          try {
-            return await resume(saved)
-          } catch (error) {
-            log(`resume failed: ${(error as Error)?.message}`)
-          }
-        }
-        return await create()
+        return await step(agent)
       })
     },
 
