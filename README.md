@@ -101,7 +101,7 @@ pnpm test      # node --test，直接跑 TS 源码
 pnpm release   # 构建并组装 release/dsh-pet-go-<version>/，自带打包自检
 ```
 
-架构与取舍见 [technical-design.md](./technical-design.md)、[architecture.md](./architecture.md)；扩展手册见 [docs/extending.md](./docs/extending.md)；进度见 [PLAN.md](./PLAN.md)。
+扩展手册（加形象、换截屏、跟 DSH 升级）见 [docs/extending.md](./docs/extending.md)。
 
 ## 授权与归属
 
