@@ -32,7 +32,7 @@
 
 两种装法，任选一种。
 
-**插件页（推荐）**：打开 DSH 的**插件**页 →「添加插件」→ 选发布包解压后的目录（或 `pnpm release` 生成的 `release/dsh-pet-go-<version>/`）。装完浮窗出现在屏幕右下角；重启 DSH 后仍在。
+**从 Releases 下载（推荐）**：到 [Releases](https://github.com/GantWu03/dsh-pet-go/releases) 下载 `dsh-pet-go-<version>.zip`，解压得到含 `package.json`、`lib/`、`helper/` 的目录；打开 DSH 的**插件**页 →「添加插件」→ 选这个目录。装完浮窗出现在屏幕右下角；重启 DSH 后仍在。
 
 **从源码**：
 
