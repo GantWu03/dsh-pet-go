@@ -18,7 +18,7 @@
 
 一句话：**它是一个能看到你的屏幕、能自己理解你在做什么、能调用全部 DSH 能力的实用型桌宠。** 贪玩、卖萌、碎碎念这些都不做——省下来的每一行代码都不吃干饭。
 
-![桌面小助手：读你屏幕上的文档，在气泡里给出结论](packages/host/docs/preview.svg)
+![她读到你屏幕上的文档，在气泡里给出结论](docs/shot-answer.png)
 
 ## 它是怎么干活的
 
@@ -52,6 +52,8 @@ pnpm verify                                  # build + tsc + 依赖规则 + 测�
 - 隐藏后：点**托盘图标**、按**热键**、或再启动一次都能唤回。
 - 第一次启动会弹一次提示气泡，告诉你它就是用来提问的、而且会带截图。
 
+![输入条：打一句话，附一张截图](docs/shot-composer.png)
+
 
 ## 隐私与权限（重要）
 
@@ -70,8 +72,6 @@ pnpm verify                                  # build + tsc + 依赖规则 + 测�
 | `%USERPROFILE%\.dsh\dsh-pet-go\env.json` | 最近一次机器事实快照 |
 | `%APPDATA%\@dsh-pet-go\helper\config.json` | 热键、形象、开机自启、聚焦行为 |
 | `%APPDATA%\@dsh-pet-go\helper\window-state.json` | 浮窗位置 |
-
-> 0.1.0 时代这些文件在 `%USERPROFILE%\.dsh\companion\`。首次启动会自动迁移到 `dsh-pet-go\`，并在旧位置留一个 junction：已经存在的会话 header 里记着旧 cwd，resume 不能改 cwd。
 
 ## 环境要求
 

@@ -58,8 +58,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## Feature illustration
+## Screenshots
 
-`packages/host/docs/preview.svg` embeds one frame of `idle.webm` (as a base64
-WebP) so the picture travels as a single file. It is the same artwork under the
-same terms as the clips above.
+`docs/shot-answer.png`, `docs/shot-composer.png` (repository) and
+`packages/host/docs/preview.png` (plugin detail page) are real captures of the
+running companion. They show the same artwork as the clips above, under the
+same terms.

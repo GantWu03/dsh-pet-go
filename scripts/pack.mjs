@@ -106,7 +106,7 @@ for (const relativePath of [
   'locale/en.json',
   'docs/DETAIL.md',
   'docs/DETAIL.zh.md',
-  'docs/preview.svg',
+  'docs/preview.png',
   'icon.svg',
   'README.md',
   'LICENSE',
