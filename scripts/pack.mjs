@@ -51,6 +51,7 @@ await copy(join(HOST_DIR, 'lib'), join(outputDir, 'lib'))
 await copy(join(HELPER_DIR, 'dist'), join(outputDir, 'helper'))
 await copy(join(HOST_DIR, 'cordis.patch.yml'), join(outputDir, 'cordis.patch.yml'))
 await copy(join(HOST_DIR, 'locale'), join(outputDir, 'locale'))
+await copy(join(HOST_DIR, 'docs'), join(outputDir, 'docs'))
 await copy(join(HOST_DIR, 'icon.svg'), join(outputDir, 'icon.svg'))
 await copy(join(ROOT, 'README.md'), join(outputDir, 'README.md'))
 await copy(join(ROOT, 'LICENSE'), join(outputDir, 'LICENSE'))
@@ -103,6 +104,9 @@ for (const relativePath of [
   'cordis.patch.yml',
   'locale/zh.json',
   'locale/en.json',
+  'docs/DETAIL.md',
+  'docs/DETAIL.zh.md',
+  'docs/preview.svg',
   'icon.svg',
   'README.md',
   'LICENSE',
@@ -110,6 +114,15 @@ for (const relativePath of [
   'package.json',
 ]) {
   check(`contains ${relativePath}`, existsSync(join(outputDir, relativePath)))
+}
+
+// Every locale that declares a detail document must ship that document.
+for (const locale of ['zh.json', 'en.json']) {
+  const parsed = JSON.parse(await readFile(join(outputDir, 'locale', locale), 'utf8'))
+  const detail = parsed?.meta?.detail
+  if (typeof detail === 'string') {
+    check(`${locale} detail document exists`, existsSync(join(outputDir, detail)), detail)
+  }
 }
 
 const entry = await import(pathToFileURL(join(outputDir, 'lib', 'index.js')).href)

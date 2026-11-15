@@ -57,3 +57,9 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## Feature illustration
+
+`packages/host/docs/preview.svg` embeds one frame of `idle.webm` (as a base64
+WebP) so the picture travels as a single file. It is the same artwork under the
+same terms as the clips above.

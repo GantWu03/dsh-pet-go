@@ -1,6 +1,7 @@
 {
   "meta": {
     "title": "Desktop companion",
-    "description": "A minimal fat-fish desktop companion that is not for show: click it and it sees your screen, works out what you are doing, and uses the full DSH toolkit to look things up and make the change for you."
+    "description": "A minimal fat-fish desktop companion that is not for show: click it and it sees your screen, works out what you are doing, and uses the full DSH toolkit to look things up and make the change for you.",
+    "detail": "docs/DETAIL.md"
   }
 }
