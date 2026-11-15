@@ -261,6 +261,7 @@ button.ghost:hover { color: var(--text); background: rgba(255, 255, 255, 0.14); 
 /* ------------------------------------------------------------------ bubble */
 
 #bubble {
+  position: relative;
   width: 368px;
   max-height: 320px;
   background: var(--glass-soft);
@@ -296,6 +297,32 @@ button.ghost:hover { color: var(--text); background: rgba(255, 255, 255, 0.14); 
 
 #bubble-text::-webkit-scrollbar { width: 6px; }
 #bubble-text::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.18); border-radius: 3px; }
+
+/* Deliberately faint: appears on hover of the bubble, never competes with text. */
+.bubble-close {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.32);
+  font-size: 15px;
+  line-height: 16px;
+  text-align: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 140ms ease, color 140ms ease, background 140ms ease;
+}
+#bubble:hover .bubble-close,
+#bubble.hovered .bubble-close { opacity: 1; }
+.bubble-close:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.14);
+}
 
 /* Rendered markdown inside the bubble */
 #bubble-text p { margin: 0 0 6px; }

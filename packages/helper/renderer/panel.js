@@ -3,6 +3,7 @@ const api = window.companion
 const bubble = document.getElementById('bubble')
 const bubbleText = document.getElementById('bubble-text')
 const bubbleMeta = document.getElementById('bubble-meta')
+const bubbleClose = document.getElementById('bubble-close')
 const panel = document.getElementById('panel')
 const input = document.getElementById('input')
 const captureToggle = document.getElementById('capture-toggle')
@@ -269,6 +270,16 @@ function sendWithKeyboard (event) {
   }
 }
 
+// Faint × in the bubble's top-right corner: dismiss without waiting for the
+// idle timer.
+bubbleClose.addEventListener('click', () => {
+  answerText = ''
+  clearIdleTimers()
+  bubble.classList.add('hidden')
+  bubble.classList.remove('thinking', 'error', 'faded')
+  api.hideBubble()
+})
+
 input.addEventListener('keydown', sendWithKeyboard)
 input.addEventListener('input', () => {
   input.style.height = 'auto'
@@ -380,6 +391,9 @@ api.onOpen(() => showComposer())
 
 api.onHover((inside) => {
   if (composerOpen || bubble.classList.contains('hidden')) return
+  // CSS :hover does not fire when the window only just stopped ignoring the
+  // mouse, so the close button's visibility is driven by this event instead.
+  bubble.classList.toggle('hovered', inside)
   if (inside) {
     // While the pointer is on the bubble it must never fade; the countdown
     // starts again the moment it leaves.
