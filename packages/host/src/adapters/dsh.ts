@@ -27,6 +27,7 @@ export interface AgentHandle {
 }
 
 export interface WorkspaceEntry {
+  id?: string
   path?: string
   sessionIds?: string[]
   attachSession (sessionId: string): Promise<void>
@@ -105,6 +106,7 @@ interface ApprovalService {
 interface WorkspaceRegistryService {
   list?: () => WorkspaceEntry[]
   create (path: string, title: string): Promise<unknown>
+  delete?: (id: string) => Promise<boolean>
 }
 
 interface AgentDefaultModelService {
@@ -206,7 +208,7 @@ export function createDshAdapter (ctx: DshContext, options: DshAdapterOptions): 
       try {
         const registry = get<WorkspaceRegistryService>('workspaceRegistry')
         if (!registry) return
-        const workspace = (registry.list?.() ?? []).find((entry) => entry.path === workspacePath)
+        const workspace = (registry.list?.() ?? []).find((entry) => entry.path && samePath(entry.path, workspacePath))
         if (!workspace) return
         const existing = workspace.sessionIds ?? []
         if (existing.includes(sessionId)) return
@@ -296,7 +298,13 @@ export function createDshAdapter (ctx: DshContext, options: DshAdapterOptions): 
 // Workspace helpers: the registry is used by both session changes and startup.
 export interface WorkspacePort {
   ensure (path: string, title: string): Promise<void>
+  /** Drop a registration by path; the directory and session logs are kept. */
+  remove (path: string): Promise<boolean>
 }
+
+/** Windows paths are case-insensitive and may carry a trailing separator. */
+const samePath = (a: string, b: string): boolean =>
+  a.replace(/[\\/]+$/, '').toLowerCase() === b.replace(/[\\/]+$/, '').toLowerCase()
 
 export function createWorkspacePort (ctx: DshContext, log: (line: string) => void): WorkspacePort {
   return {
@@ -305,11 +313,26 @@ export function createWorkspacePort (ctx: DshContext, log: (line: string) => voi
         const registry = ctx.get('workspaceRegistry') as WorkspaceRegistryService | undefined
         if (!registry) return
         const existing = registry.list?.() ?? []
-        if (existing.some((workspace) => workspace.path === path)) return
+        if (existing.some((workspace) => workspace.path && samePath(workspace.path, path))) return
         await registry.create(path, title)
         log('workspace registered')
       } catch (error) {
         log(`workspace registration skipped: ${(error as Error)?.message}`)
+      }
+    },
+
+    async remove (path: string): Promise<boolean> {
+      try {
+        const registry = ctx.get('workspaceRegistry') as WorkspaceRegistryService | undefined
+        if (!registry?.delete) return false
+        const entry = (registry.list?.() ?? []).find((workspace) => workspace.path && samePath(workspace.path, path))
+        if (!entry?.id) return false
+        const removed = await registry.delete(entry.id)
+        if (removed) log(`old workspace registration removed: ${entry.path}`)
+        return removed
+      } catch (error) {
+        log(`old workspace removal skipped: ${(error as Error)?.message}`)
+        return false
       }
     },
   }

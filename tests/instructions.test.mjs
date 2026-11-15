@@ -29,7 +29,8 @@ test('the behaviour rules the model depends on are present', () => {
   assert.match(md, /不要反问用户/)
   assert.match(md, /完整的读写和执行权限/)
   assert.match(md, /默认只读/)
-  assert.match(md, /保持简洁/)
+  assert.match(md, /保持精简/)
+  assert.match(md, /三四句话/)
 })
 
 test('missing facts are omitted instead of printed as undefined', () => {

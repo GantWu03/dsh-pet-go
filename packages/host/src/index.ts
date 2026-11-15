@@ -23,23 +23,27 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 
 /**
  * This module is the bundled plugin entry, so it lives at
- * `packages/host/lib/index.js` and the helper is its sibling workspace package.
- * The pair is always built together (scripts/build.mjs) and installed from the
- * same checkout.
+ * `packages/host/lib/index.js` in the checkout, or at `<package>/lib/index.js`
+ * when installed. The helper is looked up relative to the package root, which
+ * covers both layouts.
  */
-const REPO_ROOT = join(HERE, '..', '..', '..')
+const PACKAGE_ROOT = join(HERE, '..')
+const REPO_ROOT = join(PACKAGE_ROOT, '..', '..')
 
 const DSH_HOME = process.env.DSH_HOME || join(homedir(), '.dsh')
-const COMPANION_DIR = join(DSH_HOME, 'companion')
+const STATE_DIR = join(DSH_HOME, 'dsh-pet-go')
 
 const PATHS: CompanionPaths = {
   dshHome: DSH_HOME,
-  companionDir: COMPANION_DIR,
-  workspaceDir: join(COMPANION_DIR, 'workspace'),
-  envDir: join(DSH_HOME, 'dsh-pet-go'),
-  stateFile: join(COMPANION_DIR, 'state.json'),
-  logFile: join(COMPANION_DIR, 'host.log'),
+  stateDir: STATE_DIR,
+  workspaceDir: join(STATE_DIR, 'workspace'),
+  envDir: STATE_DIR,
+  stateFile: join(STATE_DIR, 'state.json'),
+  logFile: join(STATE_DIR, 'host.log'),
 }
+
+/** Older builds wrote everything to `$DSH_HOME/companion`. */
+const LEGACY_DIR = join(DSH_HOME, 'companion')
 
 export const name = 'companion'
 export const inject = ['attachments', 'agents']
@@ -60,7 +64,9 @@ export function apply (ctx: CordisContext, config: Record<string, unknown> = {})
   const service = new CompanionService({
     config,
     paths: PATHS,
+    legacyDir: LEGACY_DIR,
     repoRoot: REPO_ROOT,
+    packageRoot: PACKAGE_ROOT,
     // The DSH boundary is assembled here and nowhere else.
     adapter: createDshAdapter(ctx, { log }),
     workspace: createWorkspacePort(ctx, log),

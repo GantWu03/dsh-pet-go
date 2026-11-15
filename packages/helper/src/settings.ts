@@ -16,6 +16,8 @@ export interface PetSettings {
   openAtLogin: boolean
   pet: string
   focusOnOpen: boolean
+  /** First-run hint has been shown. */
+  onboarded: boolean
 }
 
 export interface Point {
@@ -36,6 +38,7 @@ export const DEFAULT_SETTINGS: PetSettings = {
   openAtLogin: false,
   pet: 'circle',
   focusOnOpen: true,
+  onboarded: false,
 }
 
 const settingsFile = (userDataDir: string): string => join(userDataDir, 'config.json')

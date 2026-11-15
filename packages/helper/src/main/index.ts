@@ -149,10 +149,29 @@ async function boot (): Promise<void> {
     },
   })
 
+  /**
+   * One short bubble on the very first launch: what the pet is for, and the one
+   * fact a new user cannot guess (it sends a screenshot).
+   */
+  const showGuideOnce = (): void => {
+    if (settings.onboarded) return
+    updateSettings({ onboarded: true })
+    log('first-run guide shown')
+    windows.showBubble(96)
+    windows.sendToPanel('companion:host', { type: 'answer', phase: 'start' })
+    windows.sendToPanel('companion:host', {
+      type: 'answer',
+      phase: 'delta',
+      text: '我是桌面小助手：点我或按 Ctrl+Shift+Space 提问；发送时会带上一张当前屏幕截图。',
+    })
+    windows.sendToPanel('companion:host', { type: 'answer', phase: 'end', ok: true })
+  }
+
   // Welcome/model frames can arrive before the panel page is ready; replay the
-  // most recent welcome whenever that page (re)loads.
+  // most recent welcome whenever that page (re)loads, then run the first-run hint.
   windows.onPanelReady(() => {
     if (lastWelcome) windows.sendToPanel('companion:host', lastWelcome)
+    showGuideOnce()
   })
 
   ipcMain.on('companion:ball-click', () => {

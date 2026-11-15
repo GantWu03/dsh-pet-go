@@ -56,15 +56,21 @@ export function resolveElectron (dshHome: string): string | null {
 }
 
 /**
- * The helper is a sibling package of the plugin, and the pair is always built
- * together. `DSH_PET_GO_HELPER` overrides it for debugging.
+ * Where the helper's built Electron app directory is.
+ *
+ * Two layouts ship:
+ *   - checkout:     packages/host/lib/index.js  +  packages/helper/dist
+ *   - installed:    <package>/lib/index.js      +  <package>/helper
+ * `DSH_PET_GO_HELPER` overrides both for debugging.
  */
-export function resolveHelperDir (repoRoot: string): string | null {
+export function resolveHelperDir (input: { packageRoot: string, repoRoot: string }): string | null {
   const candidates = [
     process.env.DSH_PET_GO_HELPER,
-    join(repoRoot, 'packages', 'helper', 'dist'),
-    // An older install layout: the plugin entry sat in packages/host itself.
-    join(repoRoot, 'packages', 'helper'),
+    // Installed package: the build copies the helper app next to lib/.
+    join(input.packageRoot, 'helper'),
+    // Checkout: the helper is a sibling workspace package.
+    join(input.repoRoot, 'packages', 'helper', 'dist'),
+    join(input.repoRoot, 'packages', 'helper'),
   ].filter(Boolean) as string[]
   for (const candidate of candidates) {
     try {

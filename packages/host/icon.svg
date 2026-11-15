@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36" role="img" aria-label="A floating companion ball with two eyes">
+  <defs>
+    <mask id="dsh-pet-go-ball-eyes">
+      <rect width="36" height="36" fill="#ffffff"/>
+      <ellipse cx="14.2" cy="16.8" rx="1.4" ry="1.9" fill="#000000"/>
+      <ellipse cx="21.8" cy="16.8" rx="1.4" ry="1.9" fill="#000000"/>
+    </mask>
+    <linearGradient id="dsh-pet-go-ball-fill" x1="11" y1="10" x2="25" y2="27" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#5b8def"/>
+      <stop offset="1" stop-color="#3f6fd1"/>
+    </linearGradient>
+  </defs>
+  <circle cx="18" cy="18" r="11" fill="url(#dsh-pet-go-ball-fill)" mask="url(#dsh-pet-go-ball-eyes)"/>
+</svg>

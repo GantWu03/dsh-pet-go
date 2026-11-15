@@ -18,6 +18,7 @@ import { PROTOCOL_VERSION } from '@dsh-pet-go/shared/protocol'
 
 import type { DshAdapter, WorkspacePort } from './adapters/dsh.ts'
 import { writeInstructions } from './instructions.ts'
+import { migrateLayout } from './migrate.ts'
 import { createRelay } from './relay.ts'
 import { createSupervisor, resolveElectron, resolveHelperDir } from './runtime/supervisor.ts'
 import type { Supervisor } from './runtime/supervisor.ts'
@@ -42,8 +43,12 @@ const SESSION_PRESET = process.env.DSH_PET_GO_PRESET || 'standard'
 export interface CompanionOptions {
   config: Record<string, unknown>
   paths: CompanionPaths
+  /** Where older builds kept the same files, migrated once on first start. */
+  legacyDir?: string
   /** Root of the checkout, used to find the sibling helper build. */
   repoRoot: string
+  /** The plugin package root, so an installed package finds its own helper. */
+  packageRoot: string
   /** DSH calls, assembled by the entry: the only place that knows DSH. */
   adapter: DshAdapter
   workspace: WorkspacePort
@@ -71,13 +76,25 @@ export class CompanionService {
   }
 
   async start (): Promise<void> {
-    const { paths, adapter, workspace } = this.#options
+    const { paths, adapter, workspace, legacyDir } = this.#options
     const log = this.#log
     try {
+      // A moved directory keeps the old path as a junction, so the session that
+      // was created under the old layout still has a working cwd.
+      const migration = legacyDir
+        ? await migrateLayout({ legacyDir, stateDir: paths.stateDir, workspaceDir: paths.workspaceDir, log })
+        : { migrated: false, legacyWorkspace: null }
+      if (this.#disposed) return
+
       await mkdir(paths.workspaceDir, { recursive: true })
       if (this.#disposed) return
       await workspace.ensure(paths.workspaceDir, WORKSPACE_TITLE)
       if (this.#disposed) return
+      if (migration.migrated && migration.legacyWorkspace) {
+        // The new row is canonical now; the old one would only show a duplicate.
+        await workspace.remove(migration.legacyWorkspace)
+        if (this.#disposed) return
+      }
 
       const session = createSessionManager({
         log,
@@ -120,7 +137,10 @@ export class CompanionService {
       }
 
       const electron = resolveElectron(paths.dshHome)
-      const helperDir = resolveHelperDir(this.#options.repoRoot)
+      const helperDir = resolveHelperDir({
+        packageRoot: this.#options.packageRoot,
+        repoRoot: this.#options.repoRoot,
+      })
       const supervisor = this.#options.supervisor ?? createSupervisor({
         log,
         electron,

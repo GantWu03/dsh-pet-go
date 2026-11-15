@@ -1,12 +1,13 @@
 {
   "name": "@dsh-pet-go/host",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Desktop companion for DeepSeek Harness: one floating ball, one screenshot question, one answer bubble.",
   "exports": {
     ".": "./lib/index.js",
-    "./locale/*.json": "./locale/*.json"
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
   },
   "dsh": {
     "bundle": {
@@ -15,7 +16,12 @@
   },
   "files": [
     "lib/index.js",
+    "helper",
     "cordis.patch.yml",
-    "locale/*.json"
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "LICENSE",
+    "NOTICE.md"
   ]
 }
