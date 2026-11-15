@@ -5,12 +5,24 @@
  * association, timeouts, an immediate failure when the channel drops, reconnect,
  * and a garbage frame that must not take the channel down.
  */
-import { test } from 'node:test'
+import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import net from 'node:net'
 
 import { encodeFrame, createFrameDecoder } from '@dsh-pet-go/shared/protocol'
 import { createHostClient } from '../packages/helper/src/host-client.ts'
+
+/**
+ * Anything a test opens is closed again, even when an assertion throws first.
+ * Without this a failure leaks a listening socket and the test process never
+ * exits, which turns a red test into a hung job.
+ */
+const openServers = new Set()
+const openClients = new Set()
+after(async () => {
+  for (const client of openClients) client.stop()
+  for (const server of openServers) await server.close()
+})
 
 /** Start a loopback server whose per-connection behaviour is the test. */
 async function startServer (onConnection) {
@@ -29,15 +41,18 @@ async function startServer (onConnection) {
   }
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
   const { port } = server.address()
-  return {
+  const handle = {
     port,
     received,
     connections,
     async close () {
+      openServers.delete(handle)
       for (const socket of connections) socket.destroy()
       await new Promise((resolve) => server.close(resolve))
     },
   }
+  openServers.add(handle)
+  return handle
 }
 
 /** Poll until `predicate` is true, or fail the test after `timeoutMs`. */
@@ -61,6 +76,7 @@ function makeClient (options) {
     reconnectMs: 20,
     ...options,
   })
+  openClients.add(client)
   return { client, frames, states }
 }
 

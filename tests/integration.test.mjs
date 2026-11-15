@@ -131,7 +131,11 @@ async function startCompanion (options = {}) {
   })
   await service.start()
   const listening = lines.find((line) => line.startsWith('listening on 127.0.0.1:'))
-  assert.ok(listening, `service did not listen: ${lines.join(' / ')}`)
+  if (!listening) {
+    // Never leave a listener behind when the service failed to come up.
+    service.dispose()
+    throw new Error(`service did not listen: ${lines.join(' / ')}`)
+  }
   const port = Number(listening.split(':').pop())
   return { service, fake, lines, port }
 }
