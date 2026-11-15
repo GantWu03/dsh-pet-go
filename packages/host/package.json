@@ -3,7 +3,7 @@
   "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Desktop companion for DeepSeek Harness: one floating ball, one screenshot question, one answer bubble.",
+  "description": "A minimal desktop companion for DeepSeek Harness that works alongside you: it sees your screen, understands what you are doing, and uses the full DSH toolkit to get things done.",
   "exports": {
     ".": "./lib/index.js",
     "./locale/*.json": "./locale/*.json",

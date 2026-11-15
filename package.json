@@ -3,7 +3,7 @@
   "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "桌面小助手 — a floating DSH companion: one ball, one screenshot question, one answer bubble.",
+  "description": "桌面小助手 — 极简大肥鱼桌宠，以陪你干活为目标：看得到屏幕，调得动 DSH 全部工具。",
   "packageManager": "pnpm@10.33.0",
   "engines": {
     "node": ">=22.18"

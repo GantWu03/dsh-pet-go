@@ -1,15 +1,26 @@
 # Third-party assets
 
-## 大肥鱼 (baifan) — pet clips
+## 大肥鱼 (baifan) — the six pet clips
 
-The six `.webm` clips in this directory are taken from the **dsh-pet** project and
-are redistributed under the MIT License:
+The six `.webm` files in this directory are taken from the **dsh-pet** project:
 
-- Project: https://github.com/PC2005-cloud/dsh-pet
+- Project: <https://github.com/PC2005-cloud/dsh-pet>
 - Copyright (c) 2026 PC2005-cloud
-- License: MIT (full text below)
 
-Only six clips are included so the plugin stays lightweight:
+### Terms
+
+dsh-pet splits its licensing: the **code** is MIT, the **artwork** is not. Its
+README states: 「代码 MIT；素材禁止商用；二创在公开渠道须署名」 — code MIT, artwork
+not for commercial use, and public derivative works must credit the upstream
+project.
+
+This project therefore uses the clips under those terms:
+
+- only for personal, non-commercial use;
+- the upstream project is credited here and in the package README;
+- if you need commercial use, obtain permission from the upstream author.
+
+Only six clips are bundled, so the plugin stays lightweight:
 
 | file | source clip |
 |---|---|
@@ -20,8 +31,10 @@ Only six clips are included so the plugin stays lightweight:
 | done.webm | 工作状态-雀跃庆祝.webm |
 | drag.webm | 被鼠标拖拽悬空反馈.webm |
 
----
+The upstream **code** license (MIT), reproduced for the parts this project
+reuses as code:
 
+```
 MIT License
 
 Copyright (c) 2026 PC2005-cloud
@@ -43,3 +56,4 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+```
