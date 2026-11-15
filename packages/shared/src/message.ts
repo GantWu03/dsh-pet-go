@@ -4,9 +4,9 @@
  * DSH exposes `createUserMessage()` from `@deepseek-ai/dsh-llm`, but a
  * workspace-linked bundle cannot resolve that package (`ERR_MODULE_NOT_FOUND`),
  * so this module rebuilds the same runtime value. The shape was verified live
- * against DSH 0.2.2-rc.2 (see PLAN.md, "M-1.5 实测结论"):
+ * against DSH 0.2.2-rc.2 (see docs/baseline.md):
  *
- *   UserMessage = { id, role: 'user', content: ContentBlock[], source: MessageSource }
+ *   UserMessage = { id, role: 'user', content: ContentBlock[], source }
  *
  * Dropping `role` makes the DeepSeek adapter reject the request with
  * "supports images only in user messages and tool results", so it is not
@@ -14,33 +14,40 @@
  */
 import { randomUUID } from 'node:crypto'
 
-/**
- * @param {string} text
- * @returns {{ type: 'text', text: string }}
- */
-export function textBlock (text) {
+export interface TextBlock {
+  type: 'text'
+  text: string
+}
+
+export interface ImageBlock {
+  type: 'image'
+  attachment: object
+}
+
+export type ContentBlock = TextBlock | ImageBlock
+
+export interface UserMessage {
+  id: string
+  role: 'user'
+  content: readonly ContentBlock[]
+  source: { kind: string }
+}
+
+export function textBlock (text: string): TextBlock {
   return { type: 'text', text }
 }
 
-/**
- * @param {import('./protocol.js').ImageAttachmentRef} attachment
- * @returns {{ type: 'image', attachment: object }}
- */
-export function imageBlock (attachment) {
+export function imageBlock (attachment: object): ImageBlock {
   return { type: 'image', attachment }
 }
 
-/**
- * Build one user message carrying text and/or images.
- * @param {{ content: object[], source?: { kind: string } }} input
- * @returns {{ id: string, role: 'user', content: object[], source: { kind: string } }}
- */
-export function createUserMessage (input) {
+/** Build one user message carrying text and/or images. */
+export function createUserMessage (input: { content: ContentBlock[], source?: { kind: string } }): UserMessage {
   const content = input.content.filter(Boolean)
   if (content.length === 0) throw new Error('a user message needs at least one content block')
   return Object.freeze({
     id: randomUUID(),
-    role: /** @type {'user'} */ ('user'),
+    role: 'user' as const,
     content: Object.freeze(content.map((block) => Object.freeze({ ...block }))),
     source: Object.freeze(input.source ?? { kind: 'user' }),
   })

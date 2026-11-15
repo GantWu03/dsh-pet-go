@@ -9,7 +9,15 @@ import os from 'node:os'
 import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
-function findInRuntimes (dshHome, relative) {
+import type { EnvironmentFacts } from '@dsh-pet-go/shared/protocol'
+
+export interface CollectInput {
+  dshHome: string
+  /** Physical pixels: the DIP size would confuse the model about screen size. */
+  display?: { width: number, height: number, scale: number } | null
+}
+
+function findInRuntimes (dshHome: string, relative: string): string | null {
   const root = join(dshHome, 'dsh-runtimes')
   try {
     for (const name of readdirSync(root)) {
@@ -20,10 +28,7 @@ function findInRuntimes (dshHome, relative) {
   return null
 }
 
-/**
- * @param {{ dshHome: string, display?: { width: number, height: number, scaleFactor: number } }} input
- */
-export function collectEnvironment ({ dshHome, display }) {
+export function collectEnvironment ({ dshHome, display }: CollectInput): EnvironmentFacts {
   const systemRoot = process.env.SystemRoot || 'C:\\Windows'
   const windowsPowerShell = join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
   const pwsh7 = process.env.ProgramFiles ? join(process.env.ProgramFiles, 'PowerShell', '7', 'pwsh.exe') : null
@@ -36,7 +41,7 @@ export function collectEnvironment ({ dshHome, display }) {
     node: findInRuntimes(dshHome, join('node', 'bin', 'node.exe')),
     home: os.homedir(),
     dshHome,
-    display: display ? { width: display.width, height: display.height, scale: display.scaleFactor } : null,
+    display: display ? { width: display.width, height: display.height, scale: display.scale } : null,
     scannedAt: new Date().toISOString(),
   }
 }

@@ -28,6 +28,7 @@ import {
   CAPTURE_MODE,
   encodeFrame,
   createFrameDecoder,
+  parseClientFrame,
 } from '@dsh-pet-go/shared/protocol'
 import { ErrorCode, describeError } from '@dsh-pet-go/shared/errors'
 import { createUserMessage, textBlock, imageBlock } from '@dsh-pet-go/shared/message'
@@ -242,9 +243,19 @@ class CompanionService {
       try { socket.destroy() } catch {}
     }
 
-    const decode = createFrameDecoder((frame) => {
+    const decode = createFrameDecoder((raw) => {
+      const parsed = parseClientFrame(raw)
+      if (!parsed.ok) {
+        this.log(`frame rejected: ${parsed.reason}`)
+        // Before the handshake a bad frame means "not our client"; afterwards it
+        // is an ordinary bad request answered on the existing channel.
+        if (!greeted) drop()
+        else this.send({ type: 'result', ok: false, ...describeError(ErrorCode.BAD_REQUEST, parsed.reason) })
+        return
+      }
+      const frame = parsed.frame
       if (!greeted) {
-        if (frame?.type !== 'hello' || frame?.token !== this.token) {
+        if (frame.type !== 'hello' || frame.token !== this.token) {
           this.log('handshake rejected')
           drop()
           return

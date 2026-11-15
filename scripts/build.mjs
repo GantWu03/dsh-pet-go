@@ -59,7 +59,7 @@ async function buildHelper () {
   await mkdir(dist, { recursive: true })
   const result = await build({
     ...common,
-    entryPoints: [join(HELPER_DIR, 'main.js')],
+    entryPoints: [join(HELPER_DIR, 'src', 'main', 'index.ts')],
     outfile: join(dist, 'main.js'),
     metafile: true,
   })
