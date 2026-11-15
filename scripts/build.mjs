@@ -46,7 +46,7 @@ async function buildHost () {
   await rm(lib, { recursive: true, force: true })
   const result = await build({
     ...common,
-    entryPoints: [join(HOST_DIR, 'src', 'index.js')],
+    entryPoints: [join(HOST_DIR, 'src', 'index.ts')],
     outfile: join(lib, 'index.js'),
     metafile: true,
   })

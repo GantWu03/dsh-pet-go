@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { agentsMd } from '../packages/host/src/index.js'
+import { agentsMd } from '../packages/host/src/instructions.ts'
 
 /** The facts a helper normally ships in `hello.env`. */
 const ENV = {

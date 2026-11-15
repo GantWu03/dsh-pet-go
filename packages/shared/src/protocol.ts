@@ -152,6 +152,11 @@ export interface SessionFrame {
 
 export type HostFrame = WelcomeFrame | ResultFrame | StateFrame | AnswerFrame | SessionFrame
 
+/** A frame as it is passed around before the codec stamps the version. */
+export type WithoutVersion<T> = T extends { v: number } ? Omit<T, 'v'> : never
+export type ClientFramePayload = WithoutVersion<ClientFrame>
+export type HostFramePayload = WithoutVersion<HostFrame>
+
 // ------------------------------------------------------------------------ codec
 
 /**

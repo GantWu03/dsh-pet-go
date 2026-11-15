@@ -61,8 +61,12 @@ function collectSources (root) {
 }
 
 /**
+ * @typedef {{ specifier: string, typeOnly: boolean }} ModuleReference
+ */
+
+/**
  * @param {string} file
- * @returns {string[]} every module specifier the file mentions statically
+ * @returns {ModuleReference[]} every module specifier the file mentions statically
  */
 function specifiersOf (file) {
   const source = ts.createSourceFile(
@@ -72,17 +76,41 @@ function specifiersOf (file) {
     true,
     file.endsWith('.ts') ? ts.ScriptKind.TS : ts.ScriptKind.JS,
   )
-  /** @type {string[]} */
+  /** @type {ModuleReference[]} */
   const found = []
+  /**
+   * An import is type-only when the clause says so, or when every named binding
+   * is marked `type` and there is no default/namespace import.
+   * @param {ts.ImportDeclaration | ts.ExportDeclaration} node
+   */
+  const isTypeOnly = (node) => {
+    if (ts.isImportDeclaration(node)) {
+      const clause = node.importClause
+      if (!clause) return false
+      if (clause.isTypeOnly) return true
+      if (clause.name) return false // a default import is a value
+      const bindings = clause.namedBindings
+      if (!bindings || !ts.isNamedImports(bindings)) return false
+      return bindings.elements.length > 0 && bindings.elements.every((element) => element.isTypeOnly)
+    }
+    if (node.isTypeOnly) return true
+    const clause = node.exportClause
+    if (!clause || !ts.isNamedExports(clause)) return false
+    return clause.elements.length > 0 && clause.elements.every((element) => element.isTypeOnly)
+  }
   /** @param {ts.Node} node */
   const visit = (node) => {
     if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
-      if (node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) found.push(node.moduleSpecifier.text)
+      if (node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
+        found.push({ specifier: node.moduleSpecifier.text, typeOnly: isTypeOnly(node) })
+      }
     } else if (ts.isCallExpression(node)) {
       const argument = node.arguments[0]
       const isDynamicImport = node.expression.kind === ts.SyntaxKind.ImportKeyword
       const isRequire = ts.isIdentifier(node.expression) && node.expression.text === 'require'
-      if ((isDynamicImport || isRequire) && argument && ts.isStringLiteralLike(argument)) found.push(argument.text)
+      if ((isDynamicImport || isRequire) && argument && ts.isStringLiteralLike(argument)) {
+        found.push({ specifier: argument.text, typeOnly: false })
+      }
     }
     ts.forEachChild(node, visit)
   }
@@ -135,7 +163,7 @@ export function checkDependencyRules ({ root }) {
   for (const file of collectSources(root)) {
     const owner = packageOf(file, packagesRoot)
     if (!owner) continue
-    for (const specifier of specifiersOf(file)) {
+    for (const { specifier, typeOnly } of specifiersOf(file)) {
       const resolved = ts.resolveModuleName(specifier, file, compilerOptions, ts.sys).resolvedModule
       const target = resolved ? packageOf(resolved.resolvedFileName, packagesRoot) : null
       const where = relative(root, file)
@@ -155,7 +183,9 @@ export function checkDependencyRules ({ root }) {
           message: `跨包引用必须走包名（目标是 packages/${target.packageName}）`,
         })
       }
-      if (owner.packageName === 'host' && target?.packageName === 'host' && target.rest.includes('adapters/')) {
+      // Type-only imports of the adapter are the narrow interface it publishes;
+      // only a value import means a module is reached into the DSH binding.
+      if (!typeOnly && owner.packageName === 'host' && target?.packageName === 'host' && target.rest.includes('adapters/')) {
         const entry = file.split(sep).pop()
         if (entry !== 'index.ts') {
           violations.push({
