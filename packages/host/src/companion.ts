@@ -86,15 +86,18 @@ export class CompanionService {
         : { migrated: false, legacyWorkspace: null }
       if (this.#disposed) return
 
+      // Drop the old registration first: the registry canonicalises paths, and a
+      // row pointing at the old path now resolves to the moved directory, so
+      // create() would return that stale row instead of a row for the new path.
+      if (migration.migrated && migration.legacyWorkspace) {
+        await workspace.remove(migration.legacyWorkspace)
+        if (this.#disposed) return
+      }
+
       await mkdir(paths.workspaceDir, { recursive: true })
       if (this.#disposed) return
       await workspace.ensure(paths.workspaceDir, WORKSPACE_TITLE)
       if (this.#disposed) return
-      if (migration.migrated && migration.legacyWorkspace) {
-        // The new row is canonical now; the old one would only show a duplicate.
-        await workspace.remove(migration.legacyWorkspace)
-        if (this.#disposed) return
-      }
 
       const session = createSessionManager({
         log,
