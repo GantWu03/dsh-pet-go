@@ -1,6 +1,6 @@
 {
   "name": "@dsh-pet-go/host",
-  "version": "0.2.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "A minimal desktop companion for DeepSeek Harness that works alongside you: it sees your screen, understands what you are doing, and uses the full DSH toolkit to get things done.",

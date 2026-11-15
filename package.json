@@ -1,6 +1,6 @@
 {
   "name": "dsh-pet-go",
-  "version": "0.2.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "桌面小助手 — 极简大肥鱼桌宠，以陪你干活为目标：看得到屏幕，调得动 DSH 全部工具。",
