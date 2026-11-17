@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url'
 import { CompanionService } from './companion.ts'
 import { createDshAdapter, createWorkspacePort } from './adapters/dsh.ts'
 import type { DshContext } from './adapters/dsh.ts'
+import { COMPANION_PERSONA } from './persona.ts'
 import type { CompanionPaths, Log } from './types.ts'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -68,7 +69,7 @@ export function apply (ctx: CordisContext, config: Record<string, unknown> = {})
     repoRoot: REPO_ROOT,
     packageRoot: PACKAGE_ROOT,
     // The DSH boundary is assembled here and nowhere else.
-    adapter: createDshAdapter(ctx, { log }),
+    adapter: createDshAdapter(ctx, { log, persona: COMPANION_PERSONA }),
     workspace: createWorkspacePort(ctx, log),
     log,
   })

@@ -18,10 +18,27 @@ const ENV = {
 
 test('the instructions describe behaviour and carry the machine facts', () => {
   const md = agentsMd(ENV)
-  assert.match(md, /^# 桌面小助手/m)
+  assert.match(md, /^# 执行规则/m)
   for (const expected of ['Windows_NT', 'PowerShell 7', 'python.exe', 'node.exe', ENV.home, '2562x1602', ENV.scannedAt]) {
     assert.ok(md.includes(expected), `instructions should mention ${expected}`)
   }
+})
+
+test('the main retrieval path leads with the screen, then processes and open files', () => {
+  // This is the product's whole premise, not an incident rule: recognise what the
+  // user is looking at before searching for it.
+  const md = agentsMd(ENV)
+  assert.match(md, /先从截图里认出对象/)
+  assert.match(md, /进程、窗口和已打开的文件/)
+  assert.match(md, /不要以整个用户目录、临时目录或盘符根为起点递归/)
+})
+
+test('the identity is not repeated here, because it needs the persona slot', () => {
+  // AGENTS.md is injected as ordinary user guidance; identity is registered as a
+  // prompt section instead. See packages/host/src/persona.ts.
+  const md = agentsMd(ENV)
+  assert.equal(md.includes('你是持续陪伴用户的桌宠'), false)
+  assert.equal(md.includes('桌宠'), false)
 })
 
 test('the behaviour rules the model depends on are present', () => {

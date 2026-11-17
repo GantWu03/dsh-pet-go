@@ -62,12 +62,13 @@
 
 ## 3. 跟 DSH 升级
 
-DSH 的变动只应影响 `packages/host/src/adapters/dsh.ts`。文件里每个 `ctx.get('…')` 就是一处耦合面：
+DSH 的变动只应影响 `packages/host/src/adapters/dsh.ts`。文件里每个 `ctx.get('…')`，以及 `setup(agentContext)` 回调拿到的那个 `agentContext` 上的服务，都是一处耦合面：
 
 | 服务 / API | 用途 | 变了会怎样 |
 |---|---|---|
 | `ctx.agents.create/resume/get` | 会话生命周期 | 提交失败、`AGENT_UNAVAILABLE` |
-| `ctx.agents` 的 setup 回调 + `agentPresets.mount` | 挂 `standard` preset（34 个工具） | 模型只剩三个工具，答不出屏幕外的事 |
+| `ctx.agents.create/resume` 的 `setup(agentContext)` + `agentPresets.mount` | 挂 `standard` preset（34 个工具）；resume 时 DSH 按会话记录重建 preset，而 persona 是运行时注册，必须在 setup 里重新应用 | 模型只剩三个工具，答不出屏幕外的事；resume 后桌宠口吻丢失 |
+| `agentContext.systemPrompt.section({ name:'deployment:persona-prefix' })` + `getSectionOrder('DEPLOYMENT_PERSONA_PREFIX')`，文案来自 `packages/host/src/persona.ts` | 桌宠身份写进系统提示：同一 scope 的同名 section 覆盖 preset 的 persona，所以只影响这个会话，不动 preset、不动其他会话 | 身份退回 preset 的 `You are a coding agent…`；若 DSH 改成同层并列而非覆盖，系统提示里会同时出现两段身份 |
 | `agent.session.append('sandbox/mode')` | 全权限 | 会话只能读工作区 |
 | `approval.setPolicy(agent,'never')` | 免审批 | 回合永久挂起 |
 | `ctx.attachments.saveImage` | 截图入库 | 带图提交失败 |
@@ -84,7 +85,9 @@ pnpm check:types      # 适配器是唯一写 DSH 形状的地方
 pnpm test             # 集成测试跑 fake DSH，不连真 DSH
 pnpm build
 # 真机：问一句看气泡流式回答；再让它查一个屏幕外的东西，确认工具还在（不是只有三个）
-# 日志 %USERPROFILE%\.dsh\companion\host.log 里应有 "preset mounted"、"permissions: sandbox=… approval=never"
+# 日志 %USERPROFILE%\.dsh\dsh-pet-go\host.log 里应有 "preset mounted"、"persona applied (deployment:persona-prefix)"、"permissions: sandbox=… approval=never"
+# 身份是否真的进了系统提示：读那名会话的日志即可（create 与 resume 各验一次）
+node tools/show-system-prompt.mjs "$env:USERPROFILE\.dsh\sessions\<workspace-slug>\session-<id>\session.v4.jsonl.zstd"
 ```
 
 ## 4. 新增一种帧
@@ -108,4 +111,4 @@ pnpm verify           # build + check + test
 Get-Process electron | Stop-Process -Force   # supervisor 1s 内重启
 ```
 
-日志只有一处：`%USERPROFILE%\.dsh\companion\host.log`，host 与 helper 都往里写（helper 的每行带 `[helper]`）。
+日志只有一处：`%USERPROFILE%\.dsh\dsh-pet-go\host.log`，host 与 helper 都往里写（helper 的每行带 `[helper]`）。

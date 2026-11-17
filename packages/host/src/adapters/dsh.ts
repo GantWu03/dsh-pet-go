@@ -79,7 +79,11 @@ export interface DshAdapter {
 export interface DshContext {
   agents: {
     get (id: string): LiveAgent | undefined
-    resume (input: { resumeSessionId: string, agentOptions?: ModelSelection }): Promise<AgentHandle>
+    resume (input: {
+      resumeSessionId: string
+      agentOptions?: ModelSelection
+      setup?: (agentCtx: unknown) => Promise<void>
+    }): Promise<AgentHandle>
     create (input: {
       sessionId: string
       agentOptions?: ModelSelection
@@ -98,6 +102,21 @@ export interface DshContext {
 interface AgentPresetsService {
   mount (agentContext: unknown, preset: string): Promise<{ id: string }>
 }
+
+/**
+ * The persona slot of the system prompt. `dsh-system-prompt` owns the deployment
+ * default and a preset's `dsh-persona` row shadows it; a section registered in
+ * the agent's own scope shadows both, which is how this session gets its voice
+ * without the preset or any other session changing.
+ */
+interface SystemPromptService {
+  section (input: { name: string, order: number, text: string }): () => void
+  getSectionOrder? (name: string): number
+}
+
+/** Names shared by the prompt registry and every persona contributor. */
+const PERSONA_PREFIX_SECTION = 'deployment:persona-prefix'
+const PERSONA_PREFIX_ORDER = 'DEPLOYMENT_PERSONA_PREFIX'
 
 interface ApprovalService {
   setPolicy (agent: LiveAgent, policy: 'never' | 'ask'): void
@@ -119,6 +138,8 @@ interface SessionControllerService {
 
 export interface DshAdapterOptions {
   log: (line: string) => void
+  /** Identity the dedicated session runs as, from `persona.ts`. */
+  persona?: string
 }
 
 /** Event names the companion listens to, kept together with their normalisers. */
@@ -127,8 +148,49 @@ const STATUS_EVENT = 'agent/status'
 const ERROR_EVENT = 'agent/error'
 
 export function createDshAdapter (ctx: DshContext, options: DshAdapterOptions): DshAdapter {
-  const { log } = options
+  const { log, persona } = options
   const get = <T>(name: string): T | undefined => ctx.get(name) as T | undefined
+
+  /**
+   * Take the persona slot from inside the agent's own scope, after the preset has
+   * filled it. Registration is scoped, so it shadows the preset's persona for this
+   * agent alone and no other session sees it; both `create` and `resume` run it
+   * through `setup`, which the agent factory awaits before publication and before
+   * the first prompt assembly.
+   */
+  const applyPersona = (agentContext: unknown): void => {
+    if (!persona) return
+    const prompts = (agentContext as { systemPrompt?: SystemPromptService } | undefined)?.systemPrompt
+    if (typeof prompts?.section !== 'function') {
+      log('persona skipped: no systemPrompt service in this agent scope')
+      return
+    }
+    try {
+      const order = typeof prompts.getSectionOrder === 'function'
+        ? prompts.getSectionOrder(PERSONA_PREFIX_ORDER)
+        : 0
+      prompts.section({ name: PERSONA_PREFIX_SECTION, order, text: persona })
+      log(`persona applied (${PERSONA_PREFIX_SECTION})`)
+    } catch (error) {
+      log(`persona failed: ${(error as Error)?.message}`)
+    }
+  }
+
+  /** Mount the preset that supplies the tools, then take the persona slot. */
+  const composeAgent = async (agentContext: unknown, preset?: string): Promise<void> => {
+    if (preset !== undefined) {
+      const presets = get<AgentPresetsService>('agentPresets')
+      if (presets) {
+        try {
+          const mounted = await presets.mount(agentContext, preset)
+          log(`preset mounted: ${mounted.id}`)
+        } catch (error) {
+          log(`preset mount failed: ${(error as Error)?.message}`)
+        }
+      }
+    }
+    applyPersona(agentContext)
+  }
 
   const sessions: SessionPort = {
     currentModel (): ModelSelection | null {
@@ -146,12 +208,14 @@ export function createDshAdapter (ctx: DshContext, options: DshAdapterOptions): 
       return await ctx.agents.resume({
         resumeSessionId: sessionId,
         agentOptions: model ?? undefined,
+        // The preset is recorded on the session and DSH rebuilds it here; the
+        // persona is a runtime registration, so it has to be re-applied.
+        setup: async (agentContext: unknown) => { applyPersona(agentContext) },
       })
     },
 
     async create ({ sessionId, cwd, preset }): Promise<AgentHandle> {
       const model = this.currentModel()
-      const presets = get<AgentPresetsService>('agentPresets')
       const handle = await ctx.agents.create({
         sessionId,
         agentOptions: model ?? undefined,
@@ -160,16 +224,7 @@ export function createDshAdapter (ctx: DshContext, options: DshAdapterOptions): 
         // actual capability composition is mounted here, from the agent's own
         // setup context. Without this the session gets the plugin-context tool
         // set (working directory / worktree / deps) instead of a real preset.
-        setup: presets
-          ? async (agentContext: unknown) => {
-              try {
-                const mounted = await presets.mount(agentContext, preset)
-                log(`preset mounted: ${mounted.id}`)
-              } catch (error) {
-                log(`preset mount failed: ${(error as Error)?.message}`)
-              }
-            }
-          : undefined,
+        setup: async (agentContext: unknown) => { await composeAgent(agentContext, preset) },
       })
       return handle
     },
