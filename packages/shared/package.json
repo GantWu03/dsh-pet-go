@@ -1,6 +1,6 @@
 {
   "name": "@dsh-pet-go/shared",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "Cross-process contracts for dsh-pet-go: wire frames, error codes and message construction.",

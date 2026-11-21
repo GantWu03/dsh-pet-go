@@ -1,6 +1,6 @@
 {
   "name": "@dsh-pet-go/helper",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "Floating ball + composer + answer bubble for the DSH desktop companion.",
