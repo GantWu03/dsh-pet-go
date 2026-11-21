@@ -54,10 +54,22 @@ declare module 'electron' {
     webPreferences?: WebPreferences
   }
 
+  /** A cancellable navigation event; `preventDefault` keeps the page where it is. */
+  export interface ElectronEvent {
+    preventDefault(): void
+  }
+
+  export interface WindowOpenHandlerDetails {
+    url: string
+  }
+
   export class WebContents {
     send(channel: string, ...args: unknown[]): void
     on(event: 'did-finish-load', listener: () => void): this
+    on(event: 'will-navigate' | 'will-redirect', listener: (event: ElectronEvent, url: string) => void): this
     on(event: string, listener: (...args: never[]) => void): this
+    /** Refusing every popup keeps this page the only document in the window. */
+    setWindowOpenHandler(handler: (details: WindowOpenHandlerDetails) => { action: 'deny' }): void
   }
 
   export class BrowserWindow {
@@ -150,4 +162,9 @@ declare module 'electron' {
   }
 
   export const app: App
+
+  export const shell: {
+    /** The user's default browser; never an in-app window. */
+    openExternal(url: string): Promise<void>
+  }
 }

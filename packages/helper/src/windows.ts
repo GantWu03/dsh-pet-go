@@ -16,11 +16,13 @@
  * frameless window (69x84 grew to 144x147 after one drag). Every move therefore
  * goes through setBounds with an explicitly tracked logical size.
  */
-import { BrowserWindow, screen } from 'electron'
+import { BrowserWindow, screen, shell } from 'electron'
+import type { ElectronEvent } from 'electron'
 import { join } from 'node:path'
 
 import type { PetSettings, Log, Point } from './settings.ts'
 import { loadWindowPosition, saveWindowPosition } from './settings.ts'
+import { externalTarget, isRendererUrl } from './navigation.ts'
 
 const BALL = 80
 const PANEL_W = 388
@@ -63,6 +65,8 @@ export interface CompanionWindows {
   hideAll (): void
   /** Physical pixels of the primary display, for the machine facts. */
   primaryDisplay (): { width: number, height: number, scale: number }
+  /** Open a link in the user's browser; anything but http(s) is refused. */
+  openExternal (url: unknown): void
   sendToBall (channel: string, payload: unknown): void
   sendToPanel (channel: string, payload: unknown): void
   /** Called whenever the panel page (re)loads, e.g. to replay the welcome frame. */
@@ -121,6 +125,50 @@ export function createWindows (deps: WindowsDeps): CompanionWindows {
     })
   }
 
+  /**
+   * Hand a link to the user's browser.
+   *
+   * The pet windows never load anything but their own pages: a link that
+   * navigated one of them would replace the UI with a foreign web page, and the
+   * app has no way back. Link clicks therefore end up here, and anything that is
+   * not http(s) is dropped instead of opened.
+   */
+  const openExternal = (url: unknown): void => {
+    const target = externalTarget(url)
+    if (!target) {
+      log(`refused to open ${String(url).slice(0, 120)}`)
+      return
+    }
+    log(`open in browser: ${target}`)
+    void shell.openExternal(target).catch((error: unknown) => {
+      log(`openExternal failed: ${(error as Error)?.message}`)
+    })
+  }
+
+  /**
+   * Keep both windows on their own page for life.
+   *
+   * `will-navigate` covers everything that would replace the document (link
+   * clicks, `location.href = ...`, form posts, drops); `setWindowOpenHandler`
+   * covers `target=_blank` / `window.open`. Both become an external open plus a
+   * refusal, so even a future page that tries to navigate cannot break the pet.
+   */
+  const lockNavigation = (win: BrowserWindow): void => {
+    const webContents = win.webContents
+    webContents.setWindowOpenHandler(({ url }) => {
+      openExternal(url)
+      return { action: 'deny' }
+    })
+    const stay = (event: ElectronEvent, url: string): void => {
+      if (isRendererUrl(url, paths.renderer)) return
+      event.preventDefault()
+      log(`blocked navigation to ${String(url).slice(0, 160)}`)
+      openExternal(url)
+    }
+    webContents.on('will-navigate', stay)
+    webContents.on('will-redirect', stay)
+  }
+
   const createBallWindow = (): void => {
     const position = loadBallPosition()
     ballWin = new BrowserWindow({
@@ -144,6 +192,7 @@ export function createWindows (deps: WindowsDeps): CompanionWindows {
     })
     ballWin.setAlwaysOnTop(true, 'screen-saver')
     ballWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+    lockNavigation(ballWin)
     void ballWin.loadFile(join(paths.renderer, 'ball.html'))
     ballWin.webContents.on('did-finish-load', () => {
       ballWin?.webContents.send('companion:init', { pet: getSettings().pet })
@@ -174,6 +223,7 @@ export function createWindows (deps: WindowsDeps): CompanionWindows {
     panelWin.setAlwaysOnTop(true, 'screen-saver')
     panelWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
     panelWin.setIgnoreMouseEvents(true, { forward: true })
+    lockNavigation(panelWin)
     void panelWin.loadFile(join(paths.renderer, 'panel.html'))
     // Frames that arrive before the page is ready (welcome/model) would be lost,
     // so the owner replays them once the renderer is up.
@@ -307,6 +357,7 @@ export function createWindows (deps: WindowsDeps): CompanionWindows {
     openPanel,
     closePanel,
     togglePanel,
+    openExternal,
 
     showBall (): void {
       if (!ballWin) return

@@ -199,6 +199,9 @@ async function boot (): Promise<void> {
   })
 
   ipcMain.on('companion:close-panel', () => windows.closePanel())
+  // The renderer only ever asks for a browser open; whether the target is a real
+  // http(s) link is decided in one place (windows.ts + navigation.ts).
+  ipcMain.on('companion:open-external', (_event, url) => windows.openExternal(url))
   ipcMain.on('companion:bubble-size', (_event, height) => {
     if (typeof height === 'number') windows.setBubbleHeight(height)
   })

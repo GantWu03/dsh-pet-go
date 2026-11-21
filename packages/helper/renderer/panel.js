@@ -86,6 +86,10 @@ function appendInline (parent, text) {
         anchor.textContent = link[1]
         anchor.href = url
         anchor.title = url
+        // Never navigate this window: the bubble is a glance, not a browser.
+        // The click handler below hands the URL to the main process instead.
+        anchor.target = '_blank'
+        anchor.rel = 'noopener noreferrer'
         parent.appendChild(anchor)
         return
       }
@@ -162,6 +166,25 @@ function buildNodes (source) {
 function renderAnswer (text) {
   bubbleText.replaceChildren(...buildNodes(text))
 }
+
+// A link in an answer points somewhere else; it is not a place to go *from* the
+// bubble. Clicking it hands the URL to the main process, which opens the user's
+// browser and refuses anything that is not http(s). Without this the bubble's
+// window itself followed the link — one click turned the whole pet into GitHub's
+// 404 page with no way back. Capture phase so nothing renders between the click
+// and the hand-off, and `auxclick` too, since a middle click would otherwise ask
+// for a new window.
+function followLink (event) {
+  const node = event.target
+  const anchor = node instanceof Element ? node.closest('a[href]') : null
+  if (!anchor) return
+  event.preventDefault()
+  event.stopPropagation()
+  api.openExternal?.(anchor.href)
+}
+
+bubbleText.addEventListener('click', followLink, true)
+bubbleText.addEventListener('auxclick', followLink, true)
 
 function reportBubbleHeight () {
   if (composerOpen || bubble.classList.contains('hidden')) return

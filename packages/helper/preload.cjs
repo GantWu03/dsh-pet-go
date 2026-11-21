@@ -11,6 +11,9 @@ contextBridge.exposeInMainWorld('companion', {
   submit: (payload) => ipcRenderer.invoke('companion:submit', payload),
   newSession: () => ipcRenderer.invoke('companion:new-session'),
   closePanel: () => ipcRenderer.send('companion:close-panel'),
+  // Links never load inside a pet window; the main process hands them to the
+  // user's browser and refuses every scheme that is not http(s).
+  openExternal: (url) => ipcRenderer.send('companion:open-external', String(url)),
   bubbleSize: (height) => ipcRenderer.send('companion:bubble-size', height),
   panelSize: (height) => ipcRenderer.send('companion:panel-size', height),
   hideBubble: () => ipcRenderer.send('companion:hide-bubble'),
